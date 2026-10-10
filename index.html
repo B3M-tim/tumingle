@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TUMingle</title>
+<style>
+  :root{
+    --cream:#F6F3EC; --ink:#1C1A14; --ink-dim:#5B5748;
+    --brass:#8A6D1E; --brass-line:#C9A227; --green:#3F5B3B; --green-dim:#6C8368;
+    --line:#D8D2C0; --card:#FFFFFF; --danger:#8B3A2E; --danger-bg:#F7E9E4;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:"Times New Roman",Times,serif; background:var(--cream); color:var(--ink);
+    min-height:100vh;
+  }
+  a{color:inherit;}
+  button{font-family:inherit;}
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid var(--line); background:var(--cream);
+    position:sticky; top:0; z-index:40;
+  }
+  .brand{font-weight:700; font-size:1.15rem; letter-spacing:-.01em;}
+  .brand span{color:var(--brass);}
+  .topbar-right{display:flex; align-items:center; gap:14px; font-size:.82rem;}
+  .status-pill{
+    border:1px solid var(--line); border-radius:3px; padding:3px 9px; color:var(--ink-dim); font-size:.72rem;
+  }
+  .status-pill.ok{border-color:var(--green-dim); color:var(--green);}
+  .status-pill.err{border-color:var(--danger); color:var(--danger); background:var(--danger-bg);}
+  .btn{
+    border:1px solid var(--ink); background:var(--ink); color:var(--cream);
+    padding:9px 16px; font-size:.82rem; cursor:pointer; border-radius:3px;
+  }
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn.secondary{background:transparent; color:var(--ink); border-color:var(--line);}
+  .btn.danger{background:var(--danger); border-color:var(--danger); color:#fff;}
+  .btn.small{padding:6px 11px; font-size:.74rem;}
+  .wrap{max-width:720px; margin:0 auto; padding:24px 18px 80px;}
+  .tabs{display:flex; gap:2px; margin-bottom:22px; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .tab{
+    padding:9px 14px; font-size:.84rem; cursor:pointer; color:var(--ink-dim);
+    border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tab.active{color:var(--ink); border-bottom-color:var(--brass); font-weight:700;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:4px;
+    padding:20px; margin-bottom:14px;
+  }
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:5px;}
+  .field input, .field select, .field textarea{
+    width:100%; padding:10px 11px; border:1px solid var(--line); border-radius:3px;
+    font-family:inherit; font-size:.92rem; background:#fff; color:var(--ink);
+  }
+  .field textarea{resize:vertical; min-height:70px;}
+  .field small{display:block; margin-top:4px; color:var(--ink-dim); font-size:.74rem;}
+  .msg{padding:10px 12px; border-radius:3px; font-size:.82rem; margin-bottom:14px; display:none;}
+  .msg.show{display:block;}
+  .msg.err{background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger);}
+  .msg.ok{background:#E8EFE6; color:var(--green); border:1px solid var(--green-dim);}
+  .msg.info{background:#F1ECD9; color:var(--brass); border:1px solid var(--brass-line);}
+  .row{display:flex; gap:10px;}
+  .row > *{flex:1;}
+  .center{text-align:center;}
+  .hint{font-size:.78rem; color:var(--ink-dim); margin-top:10px; line-height:1.5;}
+  .link-btn{background:none; border:none; color:var(--brass); text-decoration:underline; cursor:pointer; font-size:.82rem; padding:0;}
+
+  /* discover / swipe */
+  .stack{position:relative; height:420px; margin-bottom:16px;}
+  .swipe-card{
+    position:absolute; inset:0; background:var(--card); border:1px solid var(--line); border-radius:8px;
+    padding:22px; overflow-y:auto; box-shadow:0 2px 10px rgba(0,0,0,.06); cursor:grab; user-select:none;
+  }
+  .swipe-card:active{cursor:grabbing;}
+  .swipe-card h3{margin:0 0 2px; font-size:1.3rem;}
+  .swipe-card .meta{color:var(--ink-dim); font-size:.84rem; margin-bottom:10px;}
+  .swipe-card .dept{color:var(--brass); font-weight:700; font-size:.82rem; margin-bottom:10px;}
+  .swipe-card .bio{font-size:.9rem; line-height:1.6; margin-bottom:12px;}
+  .tag-row{display:flex; flex-wrap:wrap; gap:6px;}
+  .tag{border:1px solid var(--line); border-radius:20px; padding:3px 10px; font-size:.72rem; color:var(--ink-dim);}
+  .photo-slot-view{
+    width:100%; height:160px; background:#EDE9DB; border-radius:5px; margin-bottom:12px;
+    display:flex; align-items:center; justify-content:center; color:var(--ink-dim); font-size:.78rem;
+    background-size:cover; background-position:center;
+  }
+  .empty-state{
+    text-align:center; padding:50px 20px; color:var(--ink-dim); font-size:.88rem; border:1px dashed var(--line); border-radius:6px;
+  }
+  .swipe-actions{display:flex; justify-content:center; gap:14px; margin-bottom:6px;}
+  .circle-btn{
+    width:54px; height:54px; border-radius:50%; border:1px solid var(--line); background:#fff;
+    font-size:1.3rem; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .circle-btn.like{border-color:var(--green-dim); color:var(--green);}
+  .circle-btn.pass{border-color:var(--danger); color:var(--danger);}
+  .block-link{display:block; text-align:center; font-size:.76rem; color:var(--ink-dim); margin-top:10px;}
+
+  /* photo grid */
+  .photo-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px;}
+  .photo-slot{
+    aspect-ratio:3/4; border:1px dashed var(--line); border-radius:5px; background:#EDE9DB;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative;
+    background-size:cover; background-position:center; overflow:hidden;
+  }
+  .photo-slot.filled{border-style:solid;}
+  .photo-slot .plus{font-size:1.6rem; color:var(--ink-dim);}
+  .photo-slot .primary-badge{
+    position:absolute; top:4px; left:4px; background:var(--brass); color:#fff; font-size:.6rem;
+    padding:2px 6px; border-radius:3px; font-weight:700;
+  }
+  .photo-slot .del-btn{
+    position:absolute; top:4px; right:4px; background:rgba(0,0,0,.6); color:#fff; border:none;
+    width:20px; height:20px; border-radius:50%; font-size:.72rem; cursor:pointer; line-height:1;
+  }
+
+  /* interests */
+  .interest-grid{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px;}
+  .interest-chip{
+    border:1px solid var(--line); border-radius:20px; padding:6px 13px; font-size:.78rem;
+    cursor:pointer; background:#fff; color:var(--ink-dim);
+  }
+  .interest-chip.sel{border-color:var(--brass); background:#F1ECD9; color:var(--brass); font-weight:700;}
+
+  /* matches / chat */
+  .match-row{
+    display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--line);
+    border-radius:5px; margin-bottom:8px; cursor:pointer; background:#fff;
+  }
+  .match-row .av{
+    width:44px; height:44px; border-radius:50%; background:#EDE9DB; flex-shrink:0; background-size:cover; background-position:center;
+    display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--ink-dim);
+  }
+  .match-row .nm{font-weight:700; font-size:.92rem;}
+  .match-row .dp{font-size:.76rem; color:var(--ink-dim);}
+  #chatView{display:none;}
+  #chatView.active{display:block;}
+  .chat-head{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+  .chat-messages{
+    height:380px; overflow-y:auto; border:1px solid var(--line); border-radius:5px; padding:14px;
+    background:#fff; margin-bottom:10px; display:flex; flex-direction:column; gap:8px;
+  }
+  .bubble{max-width:75%; padding:8px 12px; border-radius:12px; font-size:.86rem; line-height:1.4;}
+  .bubble.mine{align-self:flex-end; background:var(--ink); color:var(--cream); border-bottom-right-radius:3px;}
+  .bubble.theirs{align-self:flex-start; background:#EDE9DB; color:var(--ink); border-bottom-left-radius:3px;}
+  .chat-form{display:flex; gap:8px;}
+  .chat-form input{flex:1;}
+
+  .push-box{border:1px solid var(--line); border-radius:5px; padding:14px; margin-top:14px; font-size:.82rem;}
+  .push-box.on{border-color:var(--green-dim); background:#E8EFE6;}
+
+  @media (max-width:480px){
+    .stack{height:460px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">TUM<span>ingle</span></div>
+  <div class="topbar-right">
+    <span id="authStatus" class="status-pill">Checking…</span>
+    <button class="btn secondary small" id="logoutBtn" style="display:none;">Log out</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- AUTH: signup / login -->
+  <div id="authScreen">
+    <div class="card" style="max-width:420px; margin:30px auto;">
+      <div id="authMsg" class="msg"></div>
+
+      <div id="loginForm">
+        <h2 style="margin-top:0;">Log in</h2>
+        <div class="field"><label>TUM student email</label><input id="loginEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
+        <div class="field"><label>Password</label><input id="loginPassword" type="password"></div>
+        <button class="btn" id="loginBtn" style="width:100%;">Log in</button>
+        <p class="hint center">No account? <button class="link-btn" id="showSignup">Sign up</button></p>
+      </div>
+
+      <div id="signupForm" style="display:none;">
+        <h2 style="margin-top:0;">Create account</h2>
+        <div class="field"><label>Display name</label><input id="suName" maxlength="40"></div>
+        <div class="field"><label>TUM student email</label><input id="suEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
+        <div class="field"><label>Password (min 8 characters)</label><input id="suPassword" type="password"></div>
+        <div class="row">
+          <div class="field"><label>Age</label><input id="suAge" type="number" min="18" max="100"></div>
+          <div class="field"><label>Gender</label><input id="suGender" placeholder="e.g. Woman"></div>
+        </div>
+        <div class="field"><label>Course</label><input id="suCourse" maxlength="100"></div>
+        <div class="field"><label>Department</label><select id="suDept"></select></div>
+        <div class="field"><label>Year of study</label><input id="suYear" placeholder="e.g. 3rd Year"></div>
+        <button class="btn" id="signupBtn" style="width:100%;">Sign up</button>
+        <p class="hint center">Already have an account? <button class="link-btn" id="showLogin">Log in</button></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- VERIFY EMAIL NOTICE -->
+  <div id="verifyScreen" style="display:none;">
+    <div class="card center" style="max-width:420px; margin:30px auto;">
+      <h2 style="margin-top:0;">Verify your email</h2>
+      <p class="hint">We sent a verification link to <strong id="verifyEmailLabel"></strong>. Open it, then come back here.</p>
+      <button class="btn" id="checkVerifiedBtn">I've verified — continue</button>
+      <p class="hint"><button class="link-btn" id="resendVerifyBtn">Resend email</button></p>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="appScreen" style="display:none;">
+    <div class="tabs">
+      <div class="tab active" data-panel="discoverPanel">Discover</div>
+      <div class="tab" data-panel="matchesPanel">Matches</div>
+      <div class="tab" data-panel="profilePanel">Profile</div>
+    </div>
+
+    <!-- DISCOVER -->
+    <div class="panel active" id="discoverPanel">
+      <div id="discoverMsg" class="msg"></div>
+      <div class="stack" id="stack"></div>
+      <div class="swipe-actions">
+        <button class="circle-btn pass" id="passBtn" title="Pass">✕</button>
+        <button class="circle-btn like" id="likeBtn" title="Like">♥</button>
+      </div>
+      <button class="block-link" id="blockProfileBtn">Block this profile</button>
+      <button class="block-link" id="reportProfileBtn">Report this profile</button>
+    </div>
+
+    <!-- MATCHES / CHAT -->
+    <div class="panel" id="matchesPanel">
+      <div id="matchesList"></div>
+      <div id="chatView">
+        <div class="chat-head">
+          <button class="btn secondary small" id="backToMatches">← Back</button>
+          <strong id="chatWithName"></strong>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <form class="chat-form" id="chatForm">
+          <input id="chatInput" placeholder="Type a message…" maxlength="1000" autocomplete="off">
+          <button class="btn" type="submit">Send</button>
+        </form>
+        <button class="btn danger small" id="unmatchBtn" style="margin-top:12px;">Unmatch</button>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div class="panel" id="profilePanel">
+      <div id="profileMsg" class="msg"></div>
+      <div class="card">
+        <div class="card-label" style="font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:12px;">Photos</div>
+        <div class="photo-grid" id="photoGrid"></div>
+        <p class="hint">Tap an empty slot to add a photo. Tap an existing photo to make it your primary. Max 6 photos, 5MB each.</p>
+        <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+      </div>
+
+      <div class="card">
+        <form id="profileForm">
+          <div class="field"><label>Display name</label><input name="displayName" maxlength="40"></div>
+          <div class="row">
+            <div class="field"><label>Gender</label><input name="gender"></div>
+            <div class="field"><label>Interested in</label><input name="preference" placeholder="Everyone"></div>
+          </div>
+          <div class="field"><label>Course</label><input name="course" maxlength="100"></div>
+          <div class="field"><label>Department</label><select name="department" id="profileDept"></select></div>
+          <div class="field"><label>Year of study</label><input name="year"></div>
+          <div class="field"><label>Bio</label><textarea name="bio" maxlength="500"></textarea></div>
+          <button class="btn" type="submit" style="width:100%;">Save profile</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-label" style="font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:12px;">Interests</div>
+        <div class="interest-grid" id="interestGrid"></div>
+        <button class="btn secondary small" id="saveInterestsBtn" style="margin-top:10px;">Save interests</button>
+      </div>
+
+      <div class="card">
+        <div class="card-label" style="font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:8px;">Notifications</div>
+        <div class="push-box" id="pushBox">
+          <p style="margin:0 0 10px;">Get notified when someone likes you back or sends a message.</p>
+          <button class="btn secondary small" id="enablePushBtn">Enable notifications</button>
+          <p id="iosPushNote" class="hint" style="display:none;">On iPhone: add TUMingle to your Home Screen first (Share → Add to Home Screen), then open it from there to enable notifications.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="firebase-init.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
