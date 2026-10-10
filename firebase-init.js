@@ -13,12 +13,12 @@
 // from hiding this config.
 // ============================================================================
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_PROJECT_ID_HERE.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket: "PASTE_YOUR_PROJECT_ID_HERE.firebasestorage.app",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
-  appId: "PASTE_YOUR_APP_ID_HERE"
+  apiKey: "AIzaSyAcpnTRAoFA8vZdszF8oTNSWhA283FugBY",
+  authDomain: "tumingle-7959e.firebaseapp.com",
+  projectId: "tumingle-7959e",
+  storageBucket: "tumingle-7959e.firebasestorage.app",
+  messagingSenderId: "573958056600",
+  appId: "1:573958056600:web:f8ff6e7df1418b33153eed"
 };
 
 // ============================================================================
