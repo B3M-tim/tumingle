@@ -28,7 +28,7 @@ const firebaseConfig = {
 // uploadPreset: the preset you created — "tumingle_unsigned".
 // ============================================================================
 const cloudinaryConfig = {
-  cloudName: "PASTE_YOUR_CLOUDINARY_CLOUD_NAME_HERE",
+  cloudName: "jazlor7n",
   uploadPreset: "tumingle_unsigned"
 };
 
