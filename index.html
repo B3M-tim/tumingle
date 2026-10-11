@@ -170,33 +170,19 @@
 
 <div class="wrap">
 
-  <!-- AUTH: signup / login -->
+  <!-- AUTH: one box — logs in an existing student, or creates the account
+       automatically the first time this email is used. No separate signup
+       screen; see wireAuthScreen()/loginBtn in app.js. -->
   <div id="authScreen">
     <div class="card" style="max-width:420px; margin:30px auto;">
       <div id="authMsg" class="msg"></div>
 
       <div id="loginForm">
-        <h2 style="margin-top:0;">Log in</h2>
+        <h2 style="margin-top:0;">Welcome to TUMingle</h2>
         <div class="field"><label>TUM student email</label><input id="loginEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
         <div class="field"><label>Password</label><input id="loginPassword" type="password"></div>
-        <button class="btn" id="loginBtn" style="width:100%;">Log in</button>
-        <p class="hint center">No account? <button class="link-btn" id="showSignup">Sign up</button></p>
-      </div>
-
-      <div id="signupForm" style="display:none;">
-        <h2 style="margin-top:0;">Create account</h2>
-        <div class="field"><label>Display name</label><input id="suName" maxlength="40"></div>
-        <div class="field"><label>TUM student email</label><input id="suEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
-        <div class="field"><label>Password (min 8 characters)</label><input id="suPassword" type="password"></div>
-        <div class="row">
-          <div class="field"><label>Age</label><input id="suAge" type="number" min="18" max="100"></div>
-          <div class="field"><label>Gender</label><input id="suGender" placeholder="e.g. Woman"></div>
-        </div>
-        <div class="field"><label>Course</label><input id="suCourse" maxlength="100"></div>
-        <div class="field"><label>Department</label><select id="suDept"></select></div>
-        <div class="field"><label>Year of study</label><input id="suYear" placeholder="e.g. 3rd Year"></div>
-        <button class="btn" id="signupBtn" style="width:100%;">Sign up</button>
-        <p class="hint center">Already have an account? <button class="link-btn" id="showLogin">Log in</button></p>
+        <button class="btn" id="loginBtn" style="width:100%;">Continue</button>
+        <p class="hint center">First time? Just enter an email and password above — your account is created automatically. Returning? The same box logs you back in.</p>
       </div>
     </div>
   </div>
@@ -252,9 +238,10 @@
         <form id="profileForm">
           <div class="field"><label>Display name</label><input name="displayName" maxlength="40"></div>
           <div class="row">
+            <div class="field"><label>Age</label><input name="age" type="number" min="18" max="100"></div>
             <div class="field"><label>Gender</label><input name="gender"></div>
-            <div class="field"><label>Interested in</label><input name="preference" placeholder="Everyone"></div>
           </div>
+          <div class="field"><label>Interested in</label><input name="preference" placeholder="Everyone"></div>
           <div class="field"><label>Course</label><input name="course" maxlength="100"></div>
           <div class="field"><label>Department</label><select name="department" id="profileDept"></select></div>
           <div class="field"><label>Year of study</label><input name="year"></div>

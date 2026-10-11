@@ -308,96 +308,26 @@ function populateDeptSelect(selectEl) {
   }
 }
 
+// wireAuthScreen: sets up the one auth box (email + password → loginBtn
+// below). There used to be a separate signup form/screen here (name,
+// course, department, etc. collected up front, behind a "Sign up" link) —
+// removed because a dedicated signup step was friction students disliked.
+// Account creation now happens transparently the first time someone's
+// email/password combination doesn't match an existing account — see the
+// loginBtn handler. Anything collected on the old signup form (course,
+// department, bio...) is now filled in later from the Profile tab instead.
 function wireAuthScreen() {
-  populateDeptSelect(document.getElementById("suDept"));
-
-  document.getElementById("showSignup").onclick = () => {
-    document.getElementById("loginForm").style.display = "none";
-    document.getElementById("signupForm").style.display = "block";
-    hideMsg("authMsg");
-  };
-  document.getElementById("showLogin").onclick = () => {
-    document.getElementById("signupForm").style.display = "none";
-    document.getElementById("loginForm").style.display = "block";
-    hideMsg("authMsg");
-  };
-
-  document.getElementById("signupBtn").onclick = async () => {
-    const name = clean(document.getElementById("suName").value, 40);
-    const email = clean(document.getElementById("suEmail").value, 150).toLowerCase();
-    const password = document.getElementById("suPassword").value;
-    const age = document.getElementById("suAge").value;
-    const gender = clean(document.getElementById("suGender").value, 30);
-    const course = clean(document.getElementById("suCourse").value, 100);
-    const department = document.getElementById("suDept").value;
-    const year = clean(document.getElementById("suYear").value, 40);
-
-    if (!name || !email || !password || !course || !department || !year) {
-      return showMsg("authMsg", "Please complete all fields.", "err");
-    }
-    if (!isAdultAge(age)) {
-      return showMsg("authMsg", "You must be 18 or older to use TUMingle.", "err");
-    }
-    if (!studentEmailValid(email)) {
-      return showMsg("authMsg", "Use your TUM student email ending in @students.tum.ac.ke.", "err");
-    }
-    if (String(password).length < 8) {
-      return showMsg("authMsg", "Password must be at least 8 characters.", "err");
-    }
-    if (!DEPARTMENTS.includes(department)) {
-      return showMsg("authMsg", "Choose a valid TUM department.", "err");
-    }
-
-    const btn = document.getElementById("signupBtn");
-    btn.disabled = true;
-    signupInFlight = true;
-    try {
-      const authMod = window.__fbAuthMod;
-      const cred = await authMod.createUserWithEmailAndPassword(auth, email, password);
-      // createUserWithEmailAndPassword signs the user in immediately, which
-      // fires onAuthStateChanged in parallel with the rest of this
-      // function — signupInFlight (set above) tells that listener not to
-      // panic if it looks for the profile document before the write below
-      // has landed.
-      idToken = await cred.user.getIdToken();
-      FS_PROJECT = firebaseConfig.projectId;
-      FS_BASE = `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/default/documents`;
-
-      // Write the profile document right after account creation — if this
-      // fails we want to know immediately, not leave an auth account with
-      // no matching Firestore profile. This MUST be fsCreate(), not
-      // fsSet() — see the comment above fsCreate() for why: fsSet()'s
-      // masked PATCH is evaluated as an "update" by Firestore even when
-      // the document doesn't exist yet, which the users/{userId} rule's
-      // allow-update condition can't evaluate against a nonexistent prior
-      // document, and the write is rejected every time.
-      await fsCreate("users", cred.user.uid, {
-        displayName: name, email, age: Number(age), gender,
-        preference: "Everyone", course, department, year,
-        bio: "", interests: [], photos: [], blocked: [],
-        // "verified" means the account's email matched the TUM student
-        // domain at signup (studentEmailValid() above already checked
-        // this before we got here) — it is not an email-link verification.
-        // The signup form itself is the only gate; there is no separate
-        // confirmation step.
-        verified: true, createdAt: new Date().toISOString()
-      });
-      // onAuthStateChanged fires automatically and routes into the app.
-    } catch (e) {
-      console.error(e);
-      btn.disabled = false;
-      if (e.code === "auth/email-already-in-use") {
-        showMsg("authMsg", "That email already has an account.", "err");
-      } else if (e.code === "auth/invalid-email") {
-        showMsg("authMsg", "That email address looks invalid.", "err");
-      } else {
-        showMsg("authMsg", "Sign up failed: " + (e.message || "unknown error"), "err");
-      }
-    } finally {
-      signupInFlight = false;
-    }
-  };
-
+  // Single box: email + password, no separate "sign up" screen. First time
+  // a TUM email is used, there's no account yet, so Firebase Auth rejects
+  // the sign-in with "user not found" (older SDKs) or "invalid credential"
+  // (current SDKs intentionally use the same vague error for both "no such
+  // user" and "wrong password", so a bad password on a real account can
+  // also land here — see the comment further down on why that's an
+  // acceptable, explained tradeoff for now). Either way, we try creating
+  // the account next. If an account genuinely exists and the person just
+  // mistyped their password, account creation itself fails with
+  // "email-already-in-use", and THAT'S how we tell the two cases apart and
+  // show the right message.
   document.getElementById("loginBtn").onclick = async () => {
     const email = clean(document.getElementById("loginEmail").value, 150).toLowerCase();
     const password = document.getElementById("loginPassword").value;
@@ -407,10 +337,74 @@ function wireAuthScreen() {
     btn.disabled = true;
     try {
       const authMod = window.__fbAuthMod;
-      await authMod.signInWithEmailAndPassword(auth, email, password);
+      try {
+        await authMod.signInWithEmailAndPassword(auth, email, password);
+        return; // existing account, logged in — done.
+      } catch (signInErr) {
+        const code = signInErr.code;
+        const looksLikeNoAccount = code === "auth/user-not-found" || code === "auth/invalid-credential";
+        if (!looksLikeNoAccount) throw signInErr; // some other real error — handled below.
+
+        // No account yet for this email — this is this student's first
+        // time, so create one now instead of making them go through a
+        // separate signup screen. Still requires a real TUM email and an
+        // 8+ character password, same as before — just no extra step.
+        if (!studentEmailValid(email)) {
+          showMsg("authMsg", "Use your TUM student email ending in @students.tum.ac.ke.", "err");
+          return;
+        }
+        if (String(password).length < 8) {
+          showMsg("authMsg", "First time? Choose a password with at least 8 characters.", "err");
+          return;
+        }
+
+        let cred;
+        try {
+          cred = await authMod.createUserWithEmailAndPassword(auth, email, password);
+        } catch (createErr) {
+          if (createErr.code === "auth/email-already-in-use") {
+            // An account DOES exist — the original sign-in failure above
+            // was really just a wrong password, not "no account".
+            showMsg("authMsg", "Incorrect email or password.", "err");
+            return;
+          }
+          throw createErr;
+        }
+
+        signupInFlight = true;
+        idToken = await cred.user.getIdToken();
+        FS_PROJECT = firebaseConfig.projectId;
+        FS_BASE = `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/default/documents`;
+        // Minimal profile — just enough to use the app. The rest (name,
+        // course, department, bio, photos...) gets filled in from the
+        // Profile tab, same data as before, just collected after entry
+        // instead of before it.
+        try {
+          await fsCreate("users", cred.user.uid, {
+            displayName: email.split("@")[0], email,
+            age: 18, gender: "", preference: "Everyone",
+            course: "", department: "", year: "",
+            bio: "", interests: [], photos: [], blocked: [],
+            verified: true, createdAt: new Date().toISOString()
+          });
+          // onAuthStateChanged fires automatically and routes into the app.
+        } finally {
+          // Must reset on BOTH success and failure — if left true after a
+          // successful create, every later unrelated login would wrongly
+          // behave as if a signup were still in flight (see the listener's
+          // signupInFlight check further up for what that flag guards).
+          signupInFlight = false;
+        }
+      }
     } catch (e) {
       console.error(e);
-      showMsg("authMsg", "Incorrect email or password.", "err");
+      if (e.code === "auth/weak-password") {
+        showMsg("authMsg", "Choose a password with at least 8 characters.", "err");
+      } else if (e.code === "auth/invalid-email") {
+        showMsg("authMsg", "That doesn't look like a valid email.", "err");
+      } else {
+        showMsg("authMsg", "Couldn't log you in. Check your connection and try again.", "err");
+      }
     } finally {
       btn.disabled = false;
     }
@@ -781,8 +775,17 @@ function wireProfile() {
     if (department && !DEPARTMENTS.includes(department)) {
       return showMsg("profileMsg", "Choose a valid TUM department.", "err");
     }
+    // Age now lives only on this form — accounts created through the
+    // single login/signup box (see loginBtn in wireAuthScreen) start with
+    // a placeholder age of 18 and no other way to correct it, so this is
+    // the one place that validation can still be enforced.
+    const ageVal = form.elements.age.value;
+    if (ageVal && !isAdultAge(ageVal)) {
+      return showMsg("profileMsg", "You must be 18 or older to use TUMingle.", "err");
+    }
     const updates = {
       displayName: clean(form.elements.displayName.value, 40) || myProfile.displayName,
+      age: ageVal ? Number(ageVal) : myProfile.age,
       gender: clean(form.elements.gender.value, 30),
       preference: clean(form.elements.preference.value, 40) || "Everyone",
       course: clean(form.elements.course.value, 100),
