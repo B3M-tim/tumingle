@@ -138,6 +138,37 @@ async function fsSet(collection, docId, data) {
   return await res.json();
 }
 
+// fsCreate: a REAL create, for the one spot (signup) where the document is
+// guaranteed not to exist yet.
+//
+// Why this can't just be fsSet(): fsSet() always sends PATCH with an
+// updateMask (required so routine profile *updates* don't wipe fields the
+// request didn't mention — see the comment above fsSet). But Firestore
+// evaluates ANY masked PATCH — even one aimed at a document that doesn't
+// exist — as an "update", not a "create". The users/{userId} rule's
+// `allow update` reads `resource.data.verified`, and `resource` is the
+// document as it stood BEFORE this write — which doesn't exist yet at
+// signup, so `resource.data` is null and `resource.data.verified` throws
+// inside the rule. The result is a guaranteed, 100%-reproducible
+// permission-denied on every single signup, every time (confirmed live:
+// the Auth account gets created, the Firestore profile write silently
+// fails right after, every attempt — not an intermittent fluke).
+//
+// The fix is to use Firestore's real create endpoint instead: POST to the
+// collection with ?documentId=<uid>, no updateMask involved at all. That's
+// evaluated under `allow create`, which only checks request.auth.uid —
+// it never touches resource.data, so there's nothing to throw on.
+async function fsCreate(collection, docId, data) {
+  const url = `${FS_BASE}/${collection}?documentId=${encodeURIComponent(docId)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: toFirestoreFields(data) })
+  });
+  if (!res.ok) throw new Error(`fsCreate ${collection}/${docId}: ${res.status} ${await res.text()}`);
+  return await res.json();
+}
+
 async function fsDelete(collection, docId) {
   const res = await fetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`, {
     method: "DELETE",
@@ -332,10 +363,15 @@ function wireAuthScreen() {
       FS_PROJECT = firebaseConfig.projectId;
       FS_BASE = `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/default/documents`;
 
-      // Write the profile document BEFORE sending the verification email —
-      // if this fails we want to know immediately, not leave an auth
-      // account with no matching Firestore profile.
-      await fsSet("users", cred.user.uid, {
+      // Write the profile document right after account creation — if this
+      // fails we want to know immediately, not leave an auth account with
+      // no matching Firestore profile. This MUST be fsCreate(), not
+      // fsSet() — see the comment above fsCreate() for why: fsSet()'s
+      // masked PATCH is evaluated as an "update" by Firestore even when
+      // the document doesn't exist yet, which the users/{userId} rule's
+      // allow-update condition can't evaluate against a nonexistent prior
+      // document, and the write is rejected every time.
+      await fsCreate("users", cred.user.uid, {
         displayName: name, email, age: Number(age), gender,
         preference: "Everyone", course, department, year,
         bio: "", interests: [], photos: [], blocked: [],
