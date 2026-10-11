@@ -187,7 +187,6 @@ function setAuthStatus(text, cls) {
 }
 function showScreen(which) {
   document.getElementById("authScreen").style.display = which === "auth" ? "block" : "none";
-  document.getElementById("verifyScreen").style.display = which === "verify" ? "block" : "none";
   document.getElementById("appScreen").style.display = which === "app" ? "block" : "none";
   document.getElementById("logoutBtn").style.display = which === "auth" ? "none" : "inline-block";
 }
@@ -224,21 +223,13 @@ async function initFirebase() {
     currentUser = user;
     idToken = await user.getIdToken();
     // Keep token fresh for long sessions. Clear any previous timer first —
-    // this listener can fire more than once per page load (verify-check,
-    // external token changes), and without clearing we'd stack up a new
-    // interval each time.
+    // this listener can fire more than once per page load (e.g. external
+    // token changes), and without clearing we'd stack up a new interval
+    // each time.
     if (tokenRefreshTimer) clearInterval(tokenRefreshTimer);
     tokenRefreshTimer = setInterval(async () => {
       try { idToken = await currentUser.getIdToken(true); } catch (_) {}
     }, 50 * 60 * 1000);
-
-    await user.reload();
-    if (!user.emailVerified) {
-      document.getElementById("verifyEmailLabel").textContent = user.email;
-      setAuthStatus("Unverified", "err");
-      showScreen("verify");
-      return;
-    }
 
     try {
       myProfile = await fsGet("users", user.uid);
@@ -348,11 +339,14 @@ function wireAuthScreen() {
         displayName: name, email, age: Number(age), gender,
         preference: "Everyone", course, department, year,
         bio: "", interests: [], photos: [], blocked: [],
-        verified: false, createdAt: new Date().toISOString()
+        // "verified" means the account's email matched the TUM student
+        // domain at signup (studentEmailValid() above already checked
+        // this before we got here) — it is not an email-link verification.
+        // The signup form itself is the only gate; there is no separate
+        // confirmation step.
+        verified: true, createdAt: new Date().toISOString()
       });
-
-      await authMod.sendEmailVerification(cred.user);
-      // onAuthStateChanged fires automatically and routes to the verify screen.
+      // onAuthStateChanged fires automatically and routes into the app.
     } catch (e) {
       console.error(e);
       btn.disabled = false;
@@ -389,35 +383,6 @@ function wireAuthScreen() {
   document.getElementById("logoutBtn").onclick = async () => {
     const authMod = window.__fbAuthMod;
     await authMod.signOut(auth);
-  };
-
-  document.getElementById("checkVerifiedBtn").onclick = async () => {
-    await currentUser.reload();
-    if (currentUser.emailVerified) {
-      idToken = await currentUser.getIdToken();
-      myProfile = await fsGet("users", currentUser.uid);
-      if (!myProfile) {
-        setAuthStatus("Profile missing", "err");
-        showMsg("authMsg", "Your account exists but your profile data is missing. Please contact support.", "err");
-        showScreen("auth");
-        return;
-      }
-      await fsSet("users", currentUser.uid, { verified: true });
-      setAuthStatus(myProfile.displayName, "ok");
-      showScreen("app");
-      enterApp();
-    } else {
-      alert("Not verified yet. Please open the link in the email we sent you.");
-    }
-  };
-  document.getElementById("resendVerifyBtn").onclick = async () => {
-    const authMod = window.__fbAuthMod;
-    try {
-      await authMod.sendEmailVerification(currentUser);
-      alert("Verification email sent again.");
-    } catch (e) {
-      alert("Couldn't resend right now — please wait a minute and try again.");
-    }
   };
 }
 
