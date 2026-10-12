@@ -273,12 +273,42 @@ async function initFirebase() {
           await new Promise(r => setTimeout(r, 700));
           myProfile = await fsGet("users", user.uid);
         }
-        if (!myProfile) {
-          setAuthStatus("Profile missing", "err");
-          showMsg("authMsg", "Your account exists but your profile data is missing. Please contact support.", "err");
-          showScreen("auth");
-          return;
-        }
+      }
+      if (!myProfile) {
+        // TEMPORARY, by explicit instruction (2026-10-12): the Firestore
+        // write at signup is failing for a reason not yet root-caused —
+        // confirmed to still fail even with a real, correctly-configured
+        // Firestore database and published rules, so the actual cause is
+        // still unknown. Rather than lock everyone out until that's
+        // solved, we now let the person into the app on a LOCAL-ONLY
+        // placeholder profile instead of blocking here.
+        //
+        // Real, lasting consequences of this, not cosmetic ones:
+        //   - Nothing about this profile is saved anywhere. Refreshing
+        //     the page, logging out, or opening the app on another
+        //     device loses it completely — it's recreated empty every
+        //     time this listener runs with no Firestore doc behind it.
+        //   - Every OTHER profile-dependent feature (editing the profile
+        //     from the Profile tab, appearing in other students'
+        //     Discover stacks, being likeable/matchable) still calls the
+        //     same broken fsSet()/fsCreate() underneath, so those will
+        //     keep failing too, not just signup. This does not fix the
+        //     app end-to-end — it only stops this ONE screen from
+        //     blocking entry.
+        // Revisit by replacing this fallback once the real Firestore
+        // write failure is root-caused — see conversation history
+        // 2026-10-11/12 for what's been ruled out so far (SDK, rules
+        // content, wrong project, missing database all checked and
+        // eliminated; exact cause still open).
+        myProfile = {
+          id: user.uid, displayName: user.email.split("@")[0], email: user.email,
+          age: 18, gender: "", preference: "Everyone",
+          course: "", department: "", year: "", bio: "",
+          interests: [], photos: [], blocked: [],
+          verified: true, createdAt: new Date().toISOString(),
+          _unsaved: true // other code can check this if it needs to know
+        };
+        showMsg("authMsg", "Note: profile saving is temporarily unavailable — changes won't persist yet.", "info");
       }
       setAuthStatus(myProfile.displayName || user.email, "ok");
       showScreen("app");
@@ -388,6 +418,16 @@ function wireAuthScreen() {
             verified: true, createdAt: new Date().toISOString()
           });
           // onAuthStateChanged fires automatically and routes into the app.
+        } catch (fsErr) {
+          // TEMPORARY, by explicit instruction (2026-10-12): this write is
+          // failing for a reason not yet root-caused (see the matching
+          // note in onAuthStateChanged above for what's been ruled out).
+          // Deliberately NOT re-thrown — a real Firebase Auth account now
+          // exists either way, and onAuthStateChanged's own fallback will
+          // let the person into the app on a local, unsaved placeholder
+          // profile rather than stranding them at this login box with an
+          // account that technically exists but can never get in.
+          console.error("Profile create failed (continuing with unsaved fallback):", fsErr);
         } finally {
           // Must reset on BOTH success and failure — if left true after a
           // successful create, every later unrelated login would wrongly
@@ -799,7 +839,15 @@ function wireProfile() {
       showMsg("profileMsg", "Profile saved.", "ok");
     } catch (e) {
       console.error(e);
-      showMsg("profileMsg", "Couldn't save your profile. Try again.", "err");
+      // myProfile._unsaved (set in onAuthStateChanged's fallback) means
+      // there's no real document in Firestore for this account at all —
+      // "try again" would be misleading, since no amount of retrying
+      // fixes that; it needs the underlying write bug fixed first.
+      if (myProfile._unsaved) {
+        showMsg("profileMsg", "Profile saving is temporarily unavailable — this change isn't being saved yet. It'll work once this is fixed.", "err");
+      } else {
+        showMsg("profileMsg", "Couldn't save your profile. Try again.", "err");
+      }
     }
   };
 }
