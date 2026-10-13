@@ -85,7 +85,17 @@ function toFirestoreFields(obj) {
   for (const [k, v] of Object.entries(obj)) {
     if (v === null || v === undefined) fields[k] = { nullValue: null };
     else if (typeof v === "boolean") fields[k] = { booleanValue: v };
-    else if (typeof v === "number") fields[k] = Number.isInteger(v) ? { integerValue: v } : { doubleValue: v };
+    // Firestore's REST API requires integerValue to be a JSON STRING, not a
+    // JSON number (it's int64 under the hood; the string form avoids
+    // precision loss in JSON — confirmed against Google's own REST
+    // reference for the Value type). Sending a bare number here (e.g.
+    // { integerValue: 18 }) is a malformed field and Firestore rejects the
+    // whole write with 400 — this was the actual, previously-unconfirmed
+    // cause of every signup failing: the signup payload's `age: 18` field
+    // was the one integer value in the app's only fsCreate() call, so this
+    // bug fired on every single signup attempt and nowhere else (every
+    // other write in the app only ever sends strings/arrays).
+    else if (typeof v === "number") fields[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
     else if (Array.isArray(v)) fields[k] = { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } };
     else fields[k] = { stringValue: String(v) };
   }
@@ -275,31 +285,26 @@ async function initFirebase() {
         }
       }
       if (!myProfile) {
-        // TEMPORARY, by explicit instruction (2026-10-12): the Firestore
-        // write at signup is failing for a reason not yet root-caused —
-        // confirmed to still fail even with a real, correctly-configured
-        // Firestore database and published rules, so the actual cause is
-        // still unknown. Rather than lock everyone out until that's
-        // solved, we now let the person into the app on a LOCAL-ONLY
-        // placeholder profile instead of blocking here.
+        // Safety net, kept even after the real signup bug was fixed
+        // (2026-10-13: toFirestoreFields() was sending integerValue as a
+        // JSON number instead of the JSON string Firestore's REST API
+        // requires — every signup includes an integer `age` field, so
+        // every single signup's profile write was silently rejected with
+        // 400, every time. Fixed in toFirestoreFields() above.).
         //
-        // Real, lasting consequences of this, not cosmetic ones:
-        //   - Nothing about this profile is saved anywhere. Refreshing
-        //     the page, logging out, or opening the app on another
-        //     device loses it completely — it's recreated empty every
-        //     time this listener runs with no Firestore doc behind it.
-        //   - Every OTHER profile-dependent feature (editing the profile
-        //     from the Profile tab, appearing in other students'
-        //     Discover stacks, being likeable/matchable) still calls the
-        //     same broken fsSet()/fsCreate() underneath, so those will
-        //     keep failing too, not just signup. This does not fix the
-        //     app end-to-end — it only stops this ONE screen from
-        //     blocking entry.
-        // Revisit by replacing this fallback once the real Firestore
-        // write failure is root-caused — see conversation history
-        // 2026-10-11/12 for what's been ruled out so far (SDK, rules
-        // content, wrong project, missing database all checked and
-        // eliminated; exact cause still open).
+        // This branch should no longer trigger in normal use. It stays in
+        // place so that if a profile write ever does fail for some other
+        // reason (dropped connection, a future bug), the person still
+        // gets into the app on a local-only placeholder instead of being
+        // stranded with a real Auth account they can never use. If this
+        // message starts showing up again, something new broke the
+        // write — check the browser console for what fsCreate's catch
+        // block logged, that's the real error.
+        //
+        // What this fallback does NOT do: nothing in it is saved
+        // anywhere. Refreshing, logging out, or opening on another
+        // device loses it — it's rebuilt empty every time this listener
+        // runs with no real Firestore doc behind it.
         myProfile = {
           id: user.uid, displayName: user.email.split("@")[0], email: user.email,
           age: 18, gender: "", preference: "Everyone",
