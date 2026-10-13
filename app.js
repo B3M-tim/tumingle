@@ -206,8 +206,14 @@ async function fsQuery(collectionId, { where, limit } = {}) {
 }
 
 function fieldFilter(fieldPath, op, value) {
+  // Same integerValue-must-be-a-string rule as toFirestoreFields() above
+  // (see its comment for why). No current caller passes a number here —
+  // every fieldFilter() call in this file compares a uid string — so this
+  // wasn't firing anywhere yet, but it's the same defect and would break
+  // the moment anything filters on a numeric field (age, say), so fixing
+  // it now rather than waiting to rediscover it later.
   const valueField = typeof value === "number"
-    ? (Number.isInteger(value) ? { integerValue: value } : { doubleValue: value })
+    ? (Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value })
     : typeof value === "boolean" ? { booleanValue: value }
     : { stringValue: String(value) };
   return { fieldFilter: { field: { fieldPath }, op, value: valueField } };
