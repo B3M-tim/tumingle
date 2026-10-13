@@ -156,6 +156,102 @@
   @media (max-width:480px){
     .stack{height:460px;}
   }
+
+  /* ========================================================================
+     AUTH SCREEN — scoped restyle only (yellow/black, matches a reference
+     the user supplied). Deliberately does NOT touch --cream/--ink/--brass
+     etc above, which the rest of the app (Discover/Matches/Profile) still
+     uses — this block only applies inside #authScreen, so the signed-in
+     app keeps its current look until/unless asked to restyle that too.
+     ======================================================================== */
+  #authScreen{
+    --tum-yellow:#F6C400; --tum-yellow-dark:#E0B000; --tum-ink:#17140D;
+    --tum-ink-dim:#5B5745; --tum-cream:#FFFBEF; --tum-line:#2A2512;
+  }
+  #authScreen{
+    margin:-1px 0 0; /* sit flush under the sticky topbar, no gap */
+  }
+  #authScreen .auth-hero{
+    background:var(--tum-yellow);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,.35) 0, transparent 40%),
+      radial-gradient(circle at 85% 75%, rgba(0,0,0,.06) 0, transparent 45%);
+    padding:48px 20px 60px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+  #authScreen .auth-hero::before, #authScreen .auth-hero::after{
+    content:""; position:absolute; border-radius:50%; background:rgba(0,0,0,.05);
+  }
+  #authScreen .auth-hero::before{ width:180px; height:180px; top:-60px; left:-60px; }
+  #authScreen .auth-hero::after{ width:240px; height:240px; bottom:-90px; right:-70px; }
+  #authScreen .auth-mark{
+    display:inline-flex; align-items:center; justify-content:center; gap:10px;
+    margin-bottom:18px; position:relative; z-index:1;
+  }
+  #authScreen .auth-mark svg{ width:40px; height:40px; flex-shrink:0; }
+  #authScreen .auth-mark span{
+    font-family:Georgia,"Times New Roman",serif; font-weight:700; font-size:1.7rem;
+    color:var(--tum-ink); letter-spacing:-.01em;
+  }
+  #authScreen .auth-mark span em{ font-style:normal; color:#fff; -webkit-text-stroke:1.5px var(--tum-ink); }
+  #authScreen .auth-tagline{
+    font-size:1.05rem; color:var(--tum-ink); font-weight:600; margin:0 0 6px;
+    position:relative; z-index:1;
+  }
+  #authScreen .auth-sub{
+    font-size:.86rem; color:var(--tum-ink); opacity:.75; max-width:420px; margin:0 auto;
+    position:relative; z-index:1; line-height:1.5;
+  }
+  #authScreen .auth-badges{
+    display:flex; gap:18px; justify-content:center; margin-top:18px; flex-wrap:wrap;
+    position:relative; z-index:1;
+  }
+  #authScreen .auth-badge{
+    display:flex; align-items:center; gap:6px; font-size:.76rem; font-weight:600; color:var(--tum-ink);
+  }
+  #authScreen .auth-badge svg{ width:15px; height:15px; }
+
+  #authScreen .auth-body{ padding:0 18px 50px; background:var(--tum-cream); }
+  #authScreen .auth-card{
+    background:#fff; border:1px solid #ECE3C2; border-radius:14px;
+    padding:28px 26px; max-width:400px; margin:-30px auto 0;
+    box-shadow:0 12px 30px rgba(23,20,13,.12); position:relative; z-index:2;
+  }
+  #authScreen .auth-card h2{
+    margin:0 0 4px; font-size:1.25rem; color:var(--tum-ink); font-family:Georgia,"Times New Roman",serif;
+  }
+  #authScreen .auth-card .auth-card-sub{
+    font-size:.82rem; color:var(--tum-ink-dim); margin:0 0 20px;
+  }
+  #authScreen .field label{ color:var(--tum-ink-dim); }
+  #authScreen .field input{
+    border:1.5px solid #E7DEB8; border-radius:9px; padding:11px 13px;
+  }
+  #authScreen .field input:focus{
+    outline:none; border-color:var(--tum-yellow-dark);
+    box-shadow:0 0 0 3px rgba(246,196,0,.25);
+  }
+  #authScreen .btn.auth-submit{
+    width:100%; background:var(--tum-ink); color:var(--tum-yellow);
+    border:none; border-radius:999px; padding:13px 16px; font-weight:700;
+    font-size:.94rem; letter-spacing:.01em; cursor:pointer; margin-top:4px;
+    transition:transform .08s ease, opacity .15s ease;
+  }
+  #authScreen .btn.auth-submit:hover{ opacity:.92; }
+  #authScreen .btn.auth-submit:active{ transform:scale(.98); }
+  #authScreen .btn.auth-submit:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+  #authScreen .auth-card .hint{
+    color:var(--tum-ink-dim); font-size:.78rem; text-align:center; margin-top:14px; line-height:1.5;
+  }
+  #authScreen .msg{ border-radius:9px; }
+
+  @media (max-width:480px){
+    #authScreen .auth-hero{ padding:36px 16px 56px; }
+    #authScreen .auth-mark span{ font-size:1.4rem; }
+    #authScreen .auth-mark svg{ width:32px; height:32px; }
+  }
 </style>
 </head>
 <body>
@@ -172,17 +268,46 @@
 
   <!-- AUTH: one box — logs in an existing student, or creates the account
        automatically the first time this email is used. No separate signup
-       screen; see wireAuthScreen()/loginBtn in app.js. -->
+       screen; see wireAuthScreen()/loginBtn in app.js. All element ids
+       below are unchanged from before this restyle, so app.js needs no
+       changes — this is a markup/CSS-only pass. -->
   <div id="authScreen">
-    <div class="card" style="max-width:420px; margin:30px auto;">
-      <div id="authMsg" class="msg"></div>
+    <div class="auth-hero">
+      <div class="auth-mark">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M24 10c-8-9-22-4-22 7 0 10 14 18 22 23 8-5 22-13 22-23 0-11-14-16-22-7z" fill="#17140D"/>
+          <path d="M24 16c-5-5-13-2-13 4 0 6 8 11 13 14 5-3 13-8 13-14 0-6-8-9-13-4z" fill="#F6C400"/>
+          <path d="M15 9l9 5 9-5-9-5-9 5z" fill="#17140D"/>
+          <rect x="22.5" y="10" width="3" height="6" rx="1" fill="#17140D"/>
+        </svg>
+        <span>TUM<em>ingle</em></span>
+      </div>
+      <p class="auth-tagline">Meet. Connect. Mingle.</p>
+      <p class="auth-sub">The official dating &amp; social platform for Technical University of Mombasa students.</p>
+      <div class="auth-badges">
+        <span class="auth-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 4.5v6c0 5-3.8 8.7-9 9.5-5.2-.8-9-4.5-9-9.5v-6L12 2z"/></svg>
+          TUM Students Only
+        </span>
+        <span class="auth-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 4.5v6c0 5-3.8 8.7-9 9.5-5.2-.8-9-4.5-9-9.5v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg>
+          Safe &amp; Verified
+        </span>
+      </div>
+    </div>
 
-      <div id="loginForm">
-        <h2 style="margin-top:0;">Welcome to TUMingle</h2>
-        <div class="field"><label>TUM student email</label><input id="loginEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
-        <div class="field"><label>Password</label><input id="loginPassword" type="password"></div>
-        <button class="btn" id="loginBtn" style="width:100%;">Continue</button>
-        <p class="hint center">First time? Just enter an email and password above — your account is created automatically. Returning? The same box logs you back in.</p>
+    <div class="auth-body">
+      <div class="auth-card">
+        <div id="authMsg" class="msg"></div>
+
+        <div id="loginForm">
+          <h2>Welcome back</h2>
+          <p class="auth-card-sub">Log in, or create your account below — no separate signup needed.</p>
+          <div class="field"><label>TUM student email</label><input id="loginEmail" type="email" placeholder="you@students.tum.ac.ke"></div>
+          <div class="field"><label>Password</label><input id="loginPassword" type="password"></div>
+          <button class="btn auth-submit" id="loginBtn">Continue</button>
+          <p class="hint center">First time? Just enter an email and password above — your account is created automatically. Returning? The same box logs you back in.</p>
+        </div>
       </div>
     </div>
   </div>
