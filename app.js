@@ -47,8 +47,15 @@ const INTEREST_TAGS = [
   "Chess","Church / Faith","Fellowship","Politics & Current Affairs"
 ];
 
+// Signup is now open to any email, not just @students.tum.ac.ke (by
+// explicit instruction, 2026-10-14 — matches the open-signup approach
+// used in the 3M app). This just checks for a plausible email shape
+// (something@something.something), the same level of validation
+// Firebase Auth itself does server-side — it's not trying to verify the
+// address is real or reachable, just catch obvious typos before they
+// become a confusing Firebase error.
 function studentEmailValid(email) {
-  return /^[^@\s]+@students\.tum\.ac\.ke$/i.test(String(email || "").trim());
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 function isAdultAge(age) {
   const n = Number(age);
@@ -386,12 +393,12 @@ function wireAuthScreen() {
         const looksLikeNoAccount = code === "auth/user-not-found" || code === "auth/invalid-credential";
         if (!looksLikeNoAccount) throw signInErr; // some other real error — handled below.
 
-        // No account yet for this email — this is this student's first
+        // No account yet for this email — this is this person's first
         // time, so create one now instead of making them go through a
-        // separate signup screen. Still requires a real TUM email and an
-        // 8+ character password, same as before — just no extra step.
+        // separate signup screen. Any valid email works now (not just
+        // TUM student emails), plus an 8+ character password.
         if (!studentEmailValid(email)) {
-          showMsg("authMsg", "Use your TUM student email ending in @students.tum.ac.ke.", "err");
+          showMsg("authMsg", "Enter a valid email address.", "err");
           return;
         }
         if (String(password).length < 8) {
