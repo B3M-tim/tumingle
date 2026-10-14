@@ -78,6 +78,7 @@ function esc(s) {
 // with no build step, which is the whole point of this architecture.
 // ============================================================================
 let firebaseApp, auth, currentUser = null, idToken = null;
+let firestoreDb; // real Firestore SDK instance — used only for fsQuery() below
 let FS_PROJECT, FS_BASE;
 // Set true while the signup handler is between creating the Auth account
 // and finishing the Firestore profile write. onAuthStateChanged fires as
@@ -194,39 +195,47 @@ async function fsDelete(collection, docId) {
   return res.ok || res.status === 404;
 }
 
-// runQuery, not plain collection GET — plain GETs 403 against real
-// security rules (confirmed the hard way in 3M). where/orderBy are
-// optional; pass {} for an unfiltered query against a collection.
-async function fsQuery(collectionId, { where, limit } = {}) {
-  const structuredQuery = { from: [{ collectionId }], limit: limit || 300 };
-  if (where) structuredQuery.where = where;
-  const res = await fetch(`${FS_BASE}:runQuery`, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ structuredQuery })
-  });
-  if (!res.ok) throw new Error(`fsQuery ${collectionId}: ${res.status} ${await res.text()}`);
-  const rows = await res.json();
-  return (rows || [])
-    .filter(r => r.document)
-    .map(r => ({ id: r.document.name.split("/").pop(), ...fromFirestoreFields(r.document.fields) }));
+// fsQuery: list/filter queries, via the real Firestore SDK (window.__fbFirestoreMod,
+// instance in firestoreDb — see the comment in initFirebase() for why this
+// one piece moved off raw REST while fsGet/fsSet/fsCreate stay on it).
+// where/limit are optional; pass {} for an unfiltered query against a
+// collection. `where` is built with fieldFilter()/andFilter() below — this
+// function is the only place that translates those into real SDK calls, so
+// every existing call site (loadDiscover, chat loading, etc.) needed no
+// changes at all.
+async function fsQuery(collectionId, { where, limit: limitCount } = {}) {
+  const fsMod = window.__fbFirestoreMod;
+  const constraints = [];
+  if (where) constraints.push(...whereToConstraints(where, fsMod));
+  constraints.push(fsMod.limit(limitCount || 300));
+  const q = fsMod.query(fsMod.collection(firestoreDb, collectionId), ...constraints);
+  const snapshot = await fsMod.getDocs(q);
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+// Translates this file's plain filter descriptors (built by fieldFilter()/
+// andFilter() below) into the SDK's where() constraint objects.
+function whereToConstraints(filter, fsMod) {
+  if (filter.and) return filter.and.map(f => fieldFilterToConstraint(f, fsMod));
+  return [fieldFilterToConstraint(filter, fsMod)];
+}
+function fieldFilterToConstraint({ fieldPath, op, value }, fsMod) {
+  // REST-style op names (this file only ever uses "EQUAL") translated to
+  // the SDK's symbolic operators.
+  const opMap = { EQUAL: "==", NOT_EQUAL: "!=", LESS_THAN: "<", LESS_THAN_OR_EQUAL: "<=",
+    GREATER_THAN: ">", GREATER_THAN_OR_EQUAL: ">=", ARRAY_CONTAINS: "array-contains" };
+  return fsMod.where(fieldPath, opMap[op] || op, value);
+}
+
+// Plain filter descriptors — no more hand-built REST wire format (no
+// integerValue/stringValue wrapping to get right), since fsQuery() now
+// hands these to the real SDK's where(), which takes plain JS values
+// directly and encodes them correctly itself.
 function fieldFilter(fieldPath, op, value) {
-  // Same integerValue-must-be-a-string rule as toFirestoreFields() above
-  // (see its comment for why). No current caller passes a number here —
-  // every fieldFilter() call in this file compares a uid string — so this
-  // wasn't firing anywhere yet, but it's the same defect and would break
-  // the moment anything filters on a numeric field (age, say), so fixing
-  // it now rather than waiting to rediscover it later.
-  const valueField = typeof value === "number"
-    ? (Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value })
-    : typeof value === "boolean" ? { booleanValue: value }
-    : { stringValue: String(value) };
-  return { fieldFilter: { field: { fieldPath }, op, value: valueField } };
+  return { fieldPath, op, value };
 }
 function andFilter(filters) {
-  return { compositeFilter: { op: "AND", filters } };
+  return { and: filters };
 }
 
 // ============================================================================
@@ -262,8 +271,29 @@ async function initFirebase() {
   const authMod = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js");
   window.__fbAuthMod = authMod;
 
+  // Firestore QUERIES (runQuery) via the real SDK too, as of 2026-10-14.
+  // Single-document get/create/update (fsGet/fsSet/fsCreate below) stay on
+  // raw REST — those have worked reliably every time. But the two list
+  // queries in loadDiscover() repeatedly returned "database does not
+  // exist" from a raw REST :runQuery POST, on two separate Firebase
+  // projects, even moments after a real write had just succeeded through
+  // the exact same project/token/base-URL via plain REST — ruling out
+  // rules, request format, project mix-ups, and the database itself not
+  // existing (confirmed existing, active, and correctly configured each
+  // time this was checked directly in the Cloud console). That pattern —
+  // single-document REST calls fine, :runQuery REST calls failing — kept
+  // recurring in a way raw fetch() calls can't explain or fix: querying is
+  // exactly the part of Firestore's REST surface with the most low-level
+  // routing/transport complexity for a client to get exactly right (the
+  // single-document REST calls are comparatively simple HTTP GETs/POSTs).
+  // The SDK handles that complexity itself, so the two query call sites
+  // go through it instead of hand-rolled fetch() calls.
+  const fsMod = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js");
+  window.__fbFirestoreMod = fsMod;
+
   firebaseApp = initializeApp(firebaseConfig);
   auth = authMod.getAuth(firebaseApp);
+  firestoreDb = fsMod.getFirestore(firebaseApp);
   FS_PROJECT = firebaseConfig.projectId;
   FS_BASE = `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/default/documents`;
 
