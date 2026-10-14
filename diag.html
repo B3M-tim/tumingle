@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TUMingle diagnostic</title>
+<style>
+  body{font-family:"Times New Roman",Times,serif; max-width:700px; margin:20px auto; padding:0 16px; background:#F6F3EC; color:#1C1A14;}
+  h1{font-size:1.3rem;}
+  .field{margin:14px 0;}
+  label{display:block; margin-bottom:4px; font-size:.9rem;}
+  input{width:100%; padding:10px; font-size:1rem; font-family:inherit; border:1px solid #D8D2C0; border-radius:3px;}
+  button{padding:12px 20px; font-size:1rem; font-family:inherit; background:#1C1A14; color:#F6F3EC; border:none; border-radius:3px; cursor:pointer; margin-top:8px;}
+  button:disabled{opacity:.5;}
+  .block{margin-top:22px; padding:14px; border-radius:4px; border:1px solid #D8D2C0; background:#fff;}
+  .block h2{margin:0 0 8px; font-size:1rem;}
+  .ok{border-color:#6C8368; background:#eef3ec;}
+  .fail{border-color:#8B3A2E; background:#F7E9E4;}
+  pre{white-space:pre-wrap; word-break:break-word; font-family:ui-monospace,Consolas,monospace; font-size:.82rem; margin:6px 0 0;}
+  .status{font-weight:bold; font-size:1.1rem;}
+</style>
+</head>
+<body>
+<h1>TUMingle diagnostic — what Firestore is actually saying</h1>
+<p>This page signs you in and runs the exact same two requests the Discover tab makes, but shows the real response instead of hiding it behind "Couldn't load profiles." Log in with the account you already created (not a new one).</p>
+
+<div class="field">
+  <label>Email</label>
+  <input id="email" type="email" placeholder="you@students.tum.ac.ke">
+</div>
+<div class="field">
+  <label>Password</label>
+  <input id="password" type="password">
+</div>
+<button id="runBtn">Sign in and run diagnostic</button>
+
+<div id="results"></div>
+
+<script type="module">
+const firebaseConfig = {
+  apiKey: "AIzaSyAcpnTRAoFA8vZdszF8oTNSWhA283FugBY",
+  authDomain: "tumingle-7959e.firebaseapp.com",
+  projectId: "tumingle-7959e",
+  storageBucket: "tumingle-7959e.firebasestorage.app",
+  messagingSenderId: "573958056600",
+  appId: "1:573958056600:web:f8ff6e7df1418b33153eed"
+};
+
+const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js");
+const authMod = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js");
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = authMod.getAuth(firebaseApp);
+
+const FS_BASE = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/default/documents`;
+
+function addBlock(title, ok, bodyText) {
+  const div = document.createElement("div");
+  div.className = "block " + (ok ? "ok" : "fail");
+  div.innerHTML = `<h2>${title}</h2><div class="status">${ok ? "OK" : "FAILED"}</div><pre></pre>`;
+  div.querySelector("pre").textContent = bodyText;
+  document.getElementById("results").appendChild(div);
+}
+
+document.getElementById("runBtn").onclick = async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+  document.getElementById("results").innerHTML = "";
+
+  // Step 1: sign in with the real SDK, same as the main app.
+  let user, idToken;
+  try {
+    const cred = await authMod.signInWithEmailAndPassword(auth, email, password);
+    user = cred.user;
+    idToken = await user.getIdToken();
+    addBlock("1. Sign in", true, `Signed in as ${user.email}\nuid: ${user.uid}`);
+  } catch (e) {
+    addBlock("1. Sign in", false, `${e.code || ""}\n${e.message || e}`);
+    btn.disabled = false;
+    return;
+  }
+
+  // Step 2: fetch my own profile doc — same as fsGet("users", uid) in app.js.
+  try {
+    const res = await fetch(`${FS_BASE}/users/${encodeURIComponent(user.uid)}`, {
+      headers: { "Authorization": `Bearer ${idToken}` }
+    });
+    const text = await res.text();
+    addBlock("2. GET my own profile (users/" + user.uid + ")", res.ok, `HTTP ${res.status}\n\n${text}`);
+  } catch (e) {
+    addBlock("2. GET my own profile", false, String(e));
+  }
+
+  // Step 3: the exact likes query Discover runs — fsQuery("likes", {where: from == uid}).
+  try {
+    const structuredQuery = {
+      from: [{ collectionId: "likes" }],
+      where: { fieldFilter: { field: { fieldPath: "from" }, op: "EQUAL", value: { stringValue: user.uid } } },
+      limit: 300
+    };
+    const res = await fetch(`${FS_BASE}:runQuery`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ structuredQuery })
+    });
+    const text = await res.text();
+    addBlock("3. QUERY likes where from == me", res.ok, `HTTP ${res.status}\n\n${text}`);
+  } catch (e) {
+    addBlock("3. QUERY likes where from == me", false, String(e));
+  }
+
+  // Step 4: the exact unfiltered users query Discover runs — fetchUsersBatch().
+  try {
+    const structuredQuery = { from: [{ collectionId: "users" }], limit: 100 };
+    const res = await fetch(`${FS_BASE}:runQuery`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ structuredQuery })
+    });
+    const text = await res.text();
+    addBlock("4. QUERY all users (limit 100)", res.ok, `HTTP ${res.status}\n\n${text}`);
+  } catch (e) {
+    addBlock("4. QUERY all users", false, String(e));
+  }
+
+  btn.disabled = false;
+};
+</script>
+</body>
+</html>
