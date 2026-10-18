@@ -441,8 +441,8 @@ body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); b
 /* ---------- Discover ---------- */
 .stack{
   position:relative; width:100%; max-width:420px; margin:4px auto 0;
-  height:clamp(340px, calc(100vh - 336px), 620px);
-  height:clamp(340px, calc(100dvh - 336px), 620px);
+  height:clamp(340px, calc(100vh - 378px), 620px);
+  height:clamp(340px, calc(100dvh - 378px), 620px);
 }
 .stack.empty{height:auto; max-width:none;}
 .swipe-card{
@@ -473,6 +473,12 @@ body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); b
   position:absolute; z-index:2; padding:5px 12px; border-radius:999px; font-weight:700; font-size:.92rem; pointer-events:none;
 }
 .badge.likes{top:24px; left:14px; background:var(--t-gold); color:var(--t-navy);}
+/* Where they stand with me. Top right, opposite "Likes you", so both can show at once. */
+.badge.status{top:24px; right:14px;}
+.badge.status.liked{background:#127A45; color:#fff;}
+.badge.status.saved{background:rgba(11,16,32,.88); color:#fff;}
+.badge.status.passed{background:rgba(255,255,255,.93); color:var(--t-mute);}
+.badge-slot{display:contents;}
 .badge.compat{
   right:14px; bottom:16px; background:rgba(11,16,32,.8); color:var(--t-gold); border:1px solid rgba(246,196,0,.55);
 }
@@ -501,7 +507,7 @@ body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); b
 .card-body .study{color:var(--t-mute); font-size:1rem;}
 .card-body .bio{color:var(--t-ink-2); font-size:1.05rem; line-height:1.5;}
 
-.swipe-actions{display:flex; justify-content:center; align-items:flex-start; gap:16px; margin:18px 0 6px;}
+.swipe-actions{display:flex; justify-content:center; align-items:flex-start; gap:16px; margin:12px 0 6px;}
 .act{display:flex; flex-direction:column; align-items:center; gap:5px;}
 .act-cap{color:var(--t-mute); font-size:.88rem; font-weight:700; line-height:1;}
 .round{
@@ -517,6 +523,36 @@ body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); b
 .round.save svg{width:23px; height:23px;}
 .round.like{width:68px; height:68px; background:var(--t-gold); border-color:var(--t-gold); color:var(--t-navy);}
 .round.like svg{width:31px; height:31px; fill:currentColor; stroke:none;}
+/* Pressed: the person on top is already Passed / Saved / Liked */
+.round.pass.on{background:var(--t-bad); border-color:var(--t-bad); color:#fff;}
+.round.save.on, .round.like.on{background:var(--t-navy); border-color:var(--t-navy); color:var(--t-gold);}
+.round.save.on svg{fill:currentColor;}
+.act-cap.on{color:var(--t-ink);}
+.round:disabled{opacity:.4; cursor:default; box-shadow:none;}
+.round:disabled:active{transform:none;}
+
+/* Back + position, between the card and the buttons */
+.deck-bar{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  width:100%; max-width:420px; margin:12px auto 0;
+}
+.deck-back{
+  position:relative; display:inline-flex; align-items:center; gap:2px; height:36px; padding:0 15px 0 8px;
+  border:1.5px solid var(--t-edge); border-radius:999px; background:#fff; color:var(--t-navy);
+  font:inherit; font-size:.98rem; font-weight:700; line-height:1; cursor:pointer; box-shadow:var(--t-shadow);
+  -webkit-tap-highlight-color:transparent;
+}
+.deck-back::after{content:""; position:absolute; inset:-6px -6px;}   /* a 48px-tall touch target around the 36px pill */
+.deck-back:hover{box-shadow:var(--t-lift);}
+.deck-back:active{transform:scale(.96);}
+.deck-back svg{width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round;}
+.deck-back:disabled{opacity:.4; cursor:default; box-shadow:none;}
+.deck-back:disabled:active{transform:none;}
+.deck-count{color:var(--t-mute); font-size:.98rem; font-weight:700; font-variant-numeric:lining-nums tabular-nums;}
+/* Going Back: the card slides in from the left, the way it left */
+@keyframes deckBack{from{transform:translateX(-55%) rotate(-7deg); opacity:0;} to{transform:none; opacity:1;}}
+.swipe-card.enter-back{animation:deckBack .26s ease-out;}
+@media (prefers-reduced-motion:reduce){ .swipe-card.enter-back{animation:none;} }
 /* The card is a fixed-width column centred in a wider panel, so on wide screens the heading centres over it */
 @media (min-width:700px){
   #discoverPanel .panel-head{text-align:center;}
@@ -984,18 +1020,22 @@ body.in-chat .fab{display:none;}
     </div>
     <div id="discoverMsg" class="msg" role="status"></div>
     <div class="stack" id="stack"></div>
+    <div class="deck-bar" id="deckBar" hidden>
+      <button type="button" class="deck-back" id="backBtn" aria-label="Back to the last person" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>Back</button>
+      <span class="deck-count" id="deckCount" role="status"></span>
+    </div>
     <div class="swipe-actions" hidden>
       <div class="act">
         <button type="button" class="round pass" id="passBtn" aria-label="Pass"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button>
-        <span class="act-cap" aria-hidden="true">Pass</span>
+        <span class="act-cap" id="passCap" aria-hidden="true">Pass</span>
       </div>
       <div class="act">
         <button type="button" class="round save" id="saveBtn" aria-label="Save for later"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bookmark"/></svg></button>
-        <span class="act-cap" aria-hidden="true">Save</span>
+        <span class="act-cap" id="saveCap" aria-hidden="true">Save</span>
       </div>
       <div class="act">
         <button type="button" class="round like" id="likeBtn" aria-label="Like"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg></button>
-        <span class="act-cap" aria-hidden="true">Like</span>
+        <span class="act-cap" id="likeCap" aria-hidden="true">Like</span>
       </div>
     </div>
     <p class="discover-links" hidden>
@@ -1326,7 +1366,7 @@ body.in-chat .fab{display:none;}
       <p class="muted">Signed in as <b id="accountEmail"></b></p>
       <div class="actions">
         <button type="button" class="btn ghost" id="logoutBtn2">Log out</button>
-        <button type="button" class="btn ghost" id="resetPassesBtn">Show passed profiles again</button>
+        <button type="button" class="btn ghost" id="resetPassesBtn">Clear passed profiles</button>
       </div>
     </div>
   </section>

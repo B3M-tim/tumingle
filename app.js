@@ -590,7 +590,9 @@ let currentPanel = "home";
 // Per-login state — everything below is wiped by resetSessionState().
 const userCache = new Map();          // uid -> profile document
 let social = freshSocial();           // who I liked, who liked me (see refreshSocial)
-let discoverQueue = [];
+let discoverQueue = [];               // everyone I can see, in a stable order. A swipe never removes anyone from it.
+let discoverPos = 0;                  // index in discoverQueue of the card on top
+let discoverHistory = [];             // ids of the cards I moved past, newest last (the Back button walks this)
 let decisionLock = false;
 let dismissedIds = new Set();         // profiles I passed on (kept on this device only, newest 200)
 let currentChatPartner = null;
@@ -608,7 +610,7 @@ function resetSessionState() {
   stopChatListener();
   userCache.clear();
   social = freshSocial();
-  discoverQueue = [];
+  discoverQueue = []; discoverPos = 0; discoverHistory = [];
   decisionLock = false;
   dismissedIds = new Set();
   currentChatPartner = null; chatMsgs = new Map(); chatSession++;
@@ -704,6 +706,14 @@ function activatePanel(name, opts = {}) {
   }
   if (name === "icebreakers") renderMatchOpeners();
   if (name === "profile") renderProfileHeader();
+  if (name === "discover") {
+    refreshDeckLabels();   // my own likes, saves and passes made on other screens
+    if (!opts.initial) {
+      // Other people may have liked me (or liked me back) since I was last here. The order of the
+      // deck stays as it is; only the labels and the Home counts catch up.
+      refreshSocial(false).then(ok => { if (ok && currentPanel === "discover") { refreshDeckLabels(); renderHome(); } });
+    }
+  }
 }
 
 async function refreshSocialAndRender() {
@@ -973,30 +983,102 @@ async function fetchUsersBatch() {
   return fsQuery("users", { limit: 100 });
 }
 
+// Where a person stands with me. Drives the label on their card in Discover.
+function relationOf(id) {
+  const liked = social.liked.has(id), likedBy = social.likedBy.has(id);
+  if (liked && likedBy) return "matched";
+  if (liked) return "liked";
+  if ((myProfile.saved || []).includes(id)) return "saved";
+  if (dismissedIds.has(id)) return "passed";
+  return likedBy ? "admirer" : "new";
+}
+const RELATION_TEXT = { matched: "You are matched", liked: "You liked them", saved: "You saved them", passed: "You passed on them", admirer: "They like you" };
+
+function currentCard() { return discoverQueue.length ? (discoverQueue[discoverPos] || null) : null; }
+function canGoBack() { return discoverHistory.some(id => discoverQueue.some(u => u.id === id)); }
+
+// Move the deck. Nobody is ever removed: after the last person it starts again from the first.
+function stepDeck(dir) {
+  const n = discoverQueue.length;
+  if (n === 0) return;
+  if (dir > 0) {
+    if (n > 1) {
+      discoverHistory.push(discoverQueue[discoverPos].id);
+      if (discoverHistory.length > 60) discoverHistory.shift();
+      if (discoverPos === n - 1) toast("That's everyone. Starting again from the first person.");
+    }
+    discoverPos = (discoverPos + 1) % n;
+    return;
+  }
+  while (discoverHistory.length) {
+    const id = discoverHistory.pop();            // (not inside the callback: findIndex would pop once per person)
+    const i = discoverQueue.findIndex(u => u.id === id);
+    if (i >= 0) { discoverPos = i; return; }
+  }
+}
+// A like or save that failed: bring that person back to the top so it isn't silently lost.
+function returnToCard(user) {
+  const i = discoverQueue.findIndex(u => u.id === user.id);
+  if (i < 0) return;
+  if (discoverHistory[discoverHistory.length - 1] === user.id) discoverHistory.pop();
+  discoverPos = i;
+  renderStack();
+  renderHome();
+}
+// Only blocking takes someone out of the deck.
+function removeFromDeck(id) {
+  const i = discoverQueue.findIndex(u => u.id === id);
+  if (i < 0) return;
+  discoverQueue.splice(i, 1);
+  if (i < discoverPos) discoverPos--;
+  if (discoverPos >= discoverQueue.length) discoverPos = 0;
+  discoverHistory = discoverHistory.filter(x => x !== id);
+}
+
 async function loadDiscover(socialOk) {
   hideMsg("discoverMsg");
+  const keep = currentCard() ? currentCard().id : null;   // stay on the same person across a reload
   try {
     const all = (await fetchUsersBatch()).map(normalizeProfile);
     all.forEach(u => userCache.set(u.id, u));
     const blocked = new Set(myProfile.blocked || []);
-    const saved = new Set(myProfile.saved || []);
+    // Everyone I'm allowed to see stays in the deck, whatever I did with them: liked,
+    // passed and saved people keep their place and just carry a label.
     discoverQueue = all.filter(u => {
-      if (u.id === currentUser.uid) return false;
-      if (social.liked.has(u.id) || blocked.has(u.id) || saved.has(u.id) || dismissedIds.has(u.id)) return false;
+      if (u.id === currentUser.uid || blocked.has(u.id)) return false;
       if ((u.blocked || []).includes(currentUser.uid)) return false; // they blocked me
       return prefersEachOther(myProfile, u);
     });
-    // People who already like me first, then the best interest matches.
-    const rank = u => (social.likedBy.has(u.id) ? 1000 : 0) + compat(u).pct;
+    // Order: people who already like me, then people I haven't decided on (best interest
+    // match first), then everyone else.
+    const rank = u => {
+      const r = relationOf(u.id);
+      return (r === "admirer" ? 1000 : r === "new" ? 500 : 0) + compat(u).pct;
+    };
     discoverQueue.sort((a, b) => rank(b) - rank(a));
-    if (socialOk === false) showMsg("discoverMsg", "Couldn't check who you've already liked, so some profiles may repeat. Refresh to try again.", "info");
+    const at = keep ? discoverQueue.findIndex(u => u.id === keep) : -1;
+    discoverPos = at >= 0 ? at : 0;
+    discoverHistory = discoverHistory.filter(id => discoverQueue.some(u => u.id === id));
+    if (socialOk === false) showMsg("discoverMsg", "Couldn't check who you've already liked, so some labels may be missing. Refresh to try again.", "info");
   } catch (e) {
     console.error(e);
-    discoverQueue = [];
+    discoverQueue = []; discoverPos = 0; discoverHistory = [];
     showMsg("discoverMsg", "Couldn't load profiles. Check your connection and try again.", "err");
   }
   renderStack();
   renderHome();
+}
+
+// The small labels on a Discover card: where they stand with me. Kept in a slot of their own
+// so refreshDeckLabels() can update them in place without rebuilding the card mid-swipe.
+function badgesHTML(u) {
+  const rel = relationOf(u.id);
+  const likesYou = social.likedBy.has(u.id) && !social.liked.has(u.id);
+  const left = rel === "matched" ? `<span class="badge likes">It's a match</span>`
+    : likesYou ? `<span class="badge likes">💘 Likes you</span>` : "";
+  const word = { liked: "Liked", saved: "Saved", passed: "Passed" }[rel];
+  const right = word ? `<span class="badge status ${rel}">${word}</span>` : "";
+  return left + right;
 }
 
 // One profile card — used by the swipe stack and the full-profile dialog.
@@ -1007,7 +1089,8 @@ function profileCardHTML(u, c, opts = {}) {
   const dots = multi ? `<div class="photo-dots" aria-hidden="true">${photos.map((_, i) => `<i class="${i === 0 ? "on" : ""}"></i>`).join("")}</div>` : "";
   const zones = multi ? `<button type="button" class="photo-zone prev" aria-label="Previous photo"></button><button type="button" class="photo-zone next" aria-label="Next photo"></button>` : "";
   const badge = c.pct > 0 ? `<span class="badge compat" title="Based on shared interests, department and year">${c.pct}% match</span>` : "";
-  const likes = opts.likesYou ? `<span class="badge likes">💘 Likes you</span>` : "";
+  const likes = opts.deck ? `<span class="badge-slot">${badgesHTML(u)}</span>`
+    : opts.likesYou ? `<span class="badge likes">💘 Likes you</span>` : "";
   const stamps = opts.stamps ? `<span class="stamp like" aria-hidden="true">Like</span><span class="stamp nope" aria-hidden="true">Pass</span>` : "";
   const mineSet = new Set(myProfile.interests || []);
   const tags = (u.interests || []).map(i => `<span class="tag${mineSet.has(i) ? " shared" : ""}">${esc(i)}</span>`).join("");
@@ -1043,18 +1126,21 @@ function wirePhotoPager(root, photos) {
   root.querySelector(".photo-zone.next").onclick = (e) => { e.stopPropagation(); show(i + 1); };
 }
 
-function renderStack() {
+function renderStack(opts = {}) {
   const stack = $("stack");
   const actions = document.querySelector("#discoverPanel .swipe-actions");
   const links = document.querySelector("#discoverPanel .discover-links");
+  const bar = $("deckBar");
   stack.innerHTML = "";
-  if (discoverQueue.length === 0) {
+  const n = discoverQueue.length;
+  if (n === 0) {
+    // Only when there is genuinely nobody to show (swiping never empties the deck).
     stack.className = "stack empty";
-    actions.hidden = true; links.hidden = true;
+    actions.hidden = true; links.hidden = true; bar.hidden = true;
     stack.innerHTML = `
       <div class="empty-state big">
         <div class="empty-emoji" aria-hidden="true">🌴</div>
-        <h3>You're all caught up</h3>
+        <h3>No one to show yet</h3>
         <p>New people show up as more students join. Invite a friend to get things moving, or check back later.</p>
         <div class="empty-actions">
           <button class="btn btn-gold" id="emptyInvite">Invite a friend</button>
@@ -1067,19 +1153,67 @@ function renderStack() {
     return;
   }
   stack.className = "stack";
-  actions.hidden = false; links.hidden = false;
-  discoverQueue.slice(0, 2).reverse().forEach((u, idx, arr) => {
-    const isTop = idx === arr.length - 1;
+  actions.hidden = false; links.hidden = false; bar.hidden = false;
+  discoverPos = Math.min(Math.max(discoverPos, 0), n - 1);
+  const top = discoverQueue[discoverPos];
+  const behind = n > 1 ? discoverQueue[(discoverPos + 1) % n] : null;
+  [behind, top].forEach(u => {
+    if (!u) return;
+    const isTop = u === top;
+    const rel = relationOf(u.id);
     const card = document.createElement("article");
-    card.className = "swipe-card " + (isTop ? "top" : "behind");
-    card.innerHTML = profileCardHTML(u, compat(u), { likesYou: social.likedBy.has(u.id), stamps: isTop });
+    card.className = "swipe-card " + (isTop ? "top" : "behind") + (isTop && opts.enter === "back" ? " enter-back" : "");
+    card.dataset.uid = u.id;
+    card.innerHTML = profileCardHTML(u, compat(u), { deck: true, stamps: isTop });
     wirePhotoPager(card, photosOf(u));
     if (isTop) {
-      card.setAttribute("aria-label", `${u.displayName}. Use the buttons below, or the left and right arrow keys, to pass or like.`);
+      card.setAttribute("aria-label", `${u.displayName}. ${RELATION_TEXT[rel] ? RELATION_TEXT[rel] + ". " : ""}Use the buttons below, or the left and right arrow keys, to pass or like.`);
       attachDrag(card, u);
     }
     stack.appendChild(card);
   });
+  updateDeckControls();
+}
+
+// Buttons show where the person on top stands with me: Liked, Saved, Passed.
+function updateDeckControls() {
+  const u = currentCard();
+  const rel = u ? relationOf(u.id) : "";
+  const decided = rel === "liked" || rel === "matched";
+  // pressed: true / false for a toggle, null when the button isn't a toggle right now.
+  const set = (id, capId, pressed, caption, disabled) => {
+    const b = $(id), cap = $(capId);
+    b.classList.toggle("on", pressed === true);
+    cap.classList.toggle("on", pressed === true);
+    if (pressed === null) b.removeAttribute("aria-pressed");
+    else b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.disabled = !!disabled;
+    if (cap.textContent !== caption) cap.textContent = caption;
+  };
+  // Passing someone I already liked changes nothing, so that button honestly says "Next".
+  set("passBtn", "passCap", decided ? null : rel === "passed", decided ? "Next" : rel === "passed" ? "Passed" : "Pass", false);
+  $("passBtn").setAttribute("aria-label", decided ? "Next person" : "Pass");
+  set("saveBtn", "saveCap", rel === "saved", rel === "saved" ? "Saved" : "Save", decided);
+  set("likeBtn", "likeCap", decided, rel === "matched" ? "Matched" : decided ? "Liked" : "Like", false);
+  $("backBtn").disabled = !canGoBack();
+  setDeckCount();
+}
+
+function setDeckCount() {
+  const el = $("deckCount");
+  const text = discoverQueue.length ? `${discoverPos + 1} of ${discoverQueue.length}` : "";
+  if (el.textContent !== text) el.textContent = text;   // same text: don't make a screen reader repeat it
+}
+
+// Re-label the cards on screen after something changed, without rebuilding them
+// (a rebuild would cut off a swipe that is in progress).
+function refreshDeckLabels() {
+  document.querySelectorAll("#stack .swipe-card").forEach(card => {
+    const u = userCache.get(card.dataset.uid);
+    const slot = card.querySelector(".badge-slot");
+    if (u && slot) slot.innerHTML = badgesHTML(u);
+  });
+  if (discoverQueue.length) updateDeckControls();
 }
 
 function attachDrag(card, user) {
@@ -1137,9 +1271,11 @@ function prefersReducedMotion() {
 
 // Button/keyboard version of a swipe: animate the top card away, then decide.
 function triggerDecision(action) {
-  const u = discoverQueue[0];
+  const u = currentCard();
   if (!u || decisionLock) return;
   decisionLock = true;
+  // Save on someone who is already saved means "remove them from Saved"; the card stays put.
+  if (action === "save" && relationOf(u.id) === "saved") { decide(u, "unsave"); return; }
   const card = document.querySelector("#stack .swipe-card.top");
   if (card && !prefersReducedMotion()) {
     const t = action === "like" ? "translateX(130%) rotate(14deg)" : action === "pass" ? "translateX(-130%) rotate(-14deg)" : "translateY(-120%) scale(.96)";
@@ -1152,14 +1288,55 @@ function triggerDecision(action) {
   }
 }
 
-async function decide(user, action) {
-  discoverQueue = discoverQueue.filter(u => u.id !== user.id);
-  decisionLock = false;
-  renderStack();
+// Back: return to the person I just moved past.
+function goBack() {
+  if (decisionLock) return;
+  const before = currentCard();
+  stepDeck(-1);
+  if (currentCard() === before) return;
+  renderStack({ enter: "back" });
   renderHome();
-  if (action === "pass") { dismissUser(user.id); return; }
-  if (action === "save") { await saveProfile(user); return; }
-  await likeUser(user);
+}
+
+// Nobody is removed from the deck by a decision. The deck moves on to the next person; the
+// one I just dealt with keeps their place and comes around again, labelled Liked, Saved or Passed.
+async function decide(user, action) {
+  decisionLock = false;
+  const rel = relationOf(user.id);
+  const first = firstName(user);
+
+  if (action === "unsave") {
+    await unsaveProfile(user.id);     // stays on this person
+    refreshDeckLabels();
+    return;
+  }
+
+  // Move on first so a swipe always feels instant. (Only if they are still the card on top:
+  // if the deck was rebuilt in the meantime, leave it where it is.)
+  if (currentCard() && currentCard().id === user.id) stepDeck(1);
+
+  if (action === "pass") {
+    let p = null;
+    // Passing someone I already liked changes nothing (a like can't be taken back this way): it just moves on.
+    if (rel !== "liked" && rel !== "matched") {
+      dismissUser(user.id);
+      if (rel === "saved") p = unsaveProfile(user.id, { quiet: true });   // a decision settles it: off the shortlist
+    }
+    renderStack(); renderHome();
+    if (p) await p;
+  } else if (action === "like") {
+    renderStack(); renderHome();
+    if (rel === "liked" || rel === "matched") {
+      toast(rel === "matched" ? `You and ${first} are already matched.` : `You already liked ${first}.`);
+    } else {
+      await likeUser(user, { fromDeck: true });
+    }
+  } else if (action === "save") {
+    undismissUser(user.id);
+    renderStack(); renderHome();
+    await saveProfile(user, { fromDeck: true });
+  }
+  refreshDeckLabels();
 }
 
 // Create my like. Returns true when it completes a match.
@@ -1182,17 +1359,20 @@ async function createLike(otherId) {
   return false;
 }
 
-async function likeUser(user) {
+async function likeUser(user, { fromDeck } = {}) {
   try {
     const matched = await createLike(user.id);
+    undismissUser(user.id);           // a like replaces an earlier pass
     if (matched) await onMatch(user);
     else { await Promise.all([renderAdmirers(), renderSaved()]); renderHome(); toast(`You liked ${firstName(user)}.`); }
+    // A like settles it, so they leave my Saved shortlist.
+    if ((myProfile.saved || []).includes(user.id)) await unsaveProfile(user.id, { quiet: true });
   } catch (e) {
     console.error(e);
     toast("Couldn't send that like. Check your connection and try again.", "err");
-    // Put them back so the like isn't silently lost.
-    if (!discoverQueue.some(u => u.id === user.id)) { discoverQueue.unshift(user); renderStack(); renderHome(); }
+    if (fromDeck) returnToCard(user);   // put them back on top so the like isn't silently lost
   }
+  refreshDeckLabels();
 }
 
 async function onMatch(user) {
@@ -1202,9 +1382,10 @@ async function onMatch(user) {
   sendPushToUser(user.id, { title: "New match!", body: `You and ${myProfile.displayName} matched on TUMingle.` });
 }
 
-// Profiles I pass on are remembered on THIS device (newest 200), so they don't
-// keep coming back. Deliberately not stored in Firestore: profile documents
-// are readable by every signed-in member, and "who I passed on" shouldn't be.
+// Profiles I pass on are remembered on THIS device (newest 200). In Discover they stay in
+// the deck with a "Passed" label; in Admirers, "Not now" hides them from that list.
+// Deliberately not stored in Firestore: profile documents are readable by every
+// signed-in member, and "who I passed on" shouldn't be.
 function dismissKey() { return "tum_passed_" + (currentUser ? currentUser.uid : ""); }
 function loadDismissed() {
   try { return new Set(JSON.parse(localStorage.getItem(dismissKey()) || "[]")); }
@@ -1220,13 +1401,19 @@ function dismissUser(id) {
   dismissedIds = new Set([...dismissedIds].slice(-200));
   saveDismissed();
 }
+function undismissUser(id) {
+  if (!dismissedIds.has(id)) return;
+  dismissedIds.delete(id);
+  saveDismissed();
+}
 
 function wireDiscover() {
   $("likeBtn").onclick = () => triggerDecision("like");
   $("passBtn").onclick = () => triggerDecision("pass");
   $("saveBtn").onclick = () => triggerDecision("save");
-  $("blockProfileBtn").onclick = () => { const u = discoverQueue[0]; if (u) blockUser(u); };
-  $("reportProfileBtn").onclick = () => { const u = discoverQueue[0]; if (u) reportUser(u); };
+  $("backBtn").onclick = goBack;
+  $("blockProfileBtn").onclick = () => { const u = currentCard(); if (u) blockUser(u); };
+  $("reportProfileBtn").onclick = () => { const u = currentCard(); if (u) reportUser(u); };
 }
 
 // ----------------------------------------------------------------------------
@@ -1239,7 +1426,7 @@ function renderSavedPill() {
   b.textContent = n; b.hidden = n === 0;
 }
 
-async function saveProfile(user) {
+async function saveProfile(user, { fromDeck } = {}) {
   const saved = Array.from(new Set([...(myProfile.saved || []), user.id])).slice(-60);
   const before = myProfile.saved || [];
   myProfile.saved = saved;
@@ -1254,7 +1441,7 @@ async function saveProfile(user) {
     myProfile.saved = before;
     renderSavedPill();
     toast("Couldn't save that profile. Try again.", "err");
-    if (!discoverQueue.some(u => u.id === user.id)) { discoverQueue.unshift(user); renderStack(); renderHome(); }
+    if (fromDeck) returnToCard(user);
   }
 }
 
@@ -1264,7 +1451,7 @@ async function unsaveProfile(id, { quiet } = {}) {
   renderSavedPill();
   try {
     if (!myProfile._unsaved) await fsSet("users", currentUser.uid, { saved: myProfile.saved });
-    if (!quiet) toast("Removed from Saved. They can show up in Discover again.");
+    if (!quiet) toast("Removed from Saved.");
   } catch (e) {
     console.error(e);
     myProfile.saved = before;
@@ -1307,7 +1494,7 @@ async function blockUser(u, { fromChat } = {}) {
     await fsSet("users", currentUser.uid, { blocked });
     myProfile.blocked = blocked;
     await removeConnection(u.id);
-    discoverQueue = discoverQueue.filter(x => x.id !== u.id);
+    removeFromDeck(u.id);
     if (fromChat) closeChatView();
     renderStack();
     await Promise.all([loadMatches(), renderAdmirers(), renderSaved(), renderBlockedList()]);
@@ -1585,7 +1772,7 @@ async function fetchDirectionWithIds(fromId, toId) {
 async function unmatchUser(otherId) {
   try {
     await removeConnection(otherId);
-    dismissUser(otherId); // so they don't pop straight back into Discover
+    dismissUser(otherId); // they stay in Discover, labelled Passed
     closeChatView();
     await Promise.all([loadMatches(), loadDiscover()]);
     renderHome();
@@ -1764,7 +1951,8 @@ function profileStrength() {
 function renderHome() {
   if (!myProfile) return;
   const s = profileStrength();
-  $("statDiscover").textContent = discoverQueue.length;
+  // "People to meet" counts only people I haven't decided on; the deck itself keeps everyone.
+  $("statDiscover").textContent = discoverQueue.filter(u => { const r = relationOf(u.id); return r === "new" || r === "admirer"; }).length;
   $("statMatches").textContent = social.matchUsers.length;
   $("statAdmirers").textContent = social.admirers.length;
   $("statStrength").textContent = s.pct + "%";
@@ -2436,12 +2624,12 @@ function wireProfile() {
   $("previewProfileBtn").onclick = () => openProfileDialog(myProfile, { mode: "preview" });
 
   $("resetPassesBtn").onclick = async () => {
-    const ok = await uiConfirm("Profiles you passed on will show up in Discover again.",
-      { title: "Show passed profiles again?", okLabel: "Show them again" });
+    const ok = await uiConfirm("This removes the Passed label from people you passed on, and brings back admirers you said Not now to.",
+      { title: "Clear passed profiles?", okLabel: "Clear" });
     if (!ok) return;
     dismissedIds = new Set();
     saveDismissed();
-    toast("Done. Passed profiles can appear again.");
+    toast("Done. Passed profiles cleared.");
     await loadDiscover();
     await renderAdmirers();
     renderHome();
