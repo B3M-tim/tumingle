@@ -603,6 +603,10 @@ body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); b
 .person-main .why{color:var(--t-ink-2); font-size:.97rem; line-height:1.35;}
 .person-main .pct{color:var(--t-gold-ink);}
 .person-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:auto; padding-top:8px;}
+.person-main .when{color:var(--t-mute); font-size:.92rem;}
+.sec-note{color:var(--t-mute); font-size:1rem; line-height:1.4; margin:-4px 0 14px; max-width:36em;}
+body.in-chat #pendingWrap{display:none;}
+#matchUndo{color:var(--t-mute); font-weight:400; font-size:.95rem;}
 
 /* ---------- Chat ---------- */
 #chatView{display:none;}
@@ -839,7 +843,19 @@ dialog.match h2{font-size:1.9rem;}
   font-size:1rem; line-height:1.35; animation:toast-in .22s ease-out; transition:opacity .22s ease, transform .22s ease;
 }
 .toast.err{background:#5E1511; border-left-color:#FF8A80;}
+.toast.has-action{display:flex; align-items:center; gap:12px;}
+.toast-text{flex:1 1 auto; min-width:0;}
+.toast-btn{
+  flex:0 0 auto; pointer-events:auto; min-width:64px; min-height:44px; margin:-8px -8px -8px 0; padding:0 16px;
+  border:1.5px solid #F6C400; border-radius:12px; background:transparent; color:#F6C400;
+  font:inherit; font-weight:700; cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.toast-btn:hover{background:rgba(246,196,0,.16);}
+.toast-btn:disabled{opacity:.6; cursor:default;}
+.toast.err .toast-btn{border-color:#FFB4AB; color:#FFB4AB;}
 .toast.out{opacity:0; transform:translateY(8px);}
+/* On Discover the buttons sit where toasts normally float, so toasts rise above the Back bar instead. */
+body[data-panel="discover"] #toasts{bottom:calc(176px + env(safe-area-inset-bottom, 0px));}
 @keyframes toast-in{from{transform:translateY(10px); opacity:0;}to{transform:none; opacity:1;}}
 
 .fab{display:none;}
@@ -1051,6 +1067,13 @@ body.in-chat .fab{display:none;}
       <p>People who like you back. Say hello first.</p>
     </div>
     <div id="matchesList" class="match-list"></div>
+
+    <div id="pendingWrap" hidden>
+      <h2 class="sec-title" id="pendingTitle">Waiting for a reply</h2>
+      <p class="sec-note">People you liked who haven't liked you back yet. Changed your mind? Take the like back.</p>
+      <div id="pendingList" class="person-list" aria-labelledby="pendingTitle"></div>
+      <p class="fine" id="pendingMore" hidden>Showing your 50 most recent likes.</p>
+    </div>
 
     <div id="chatView" aria-label="Chat">
       <div class="chat-head">
@@ -1395,6 +1418,7 @@ body.in-chat .fab{display:none;}
     <div class="dlg-actions col">
       <button type="button" class="btn btn-gold" id="matchSayHi">Say hi</button>
       <button type="button" class="btn ghost" id="matchKeep">Keep browsing</button>
+      <button type="button" class="link-btn" id="matchUndo">Undo like</button>
     </div>
   </div>
 </dialog>

@@ -601,15 +601,19 @@ let chatUnsub = null;
 let chatMsgs = new Map();
 let chatBannerDismissed = false;
 let bioSeed = 0;
+// A like or a take-back that is running for one person: uid -> { kind: "like" | "takeback", promise }.
+const likeBusy = new Map();
 
 function freshSocial() {
-  return { liked: new Set(), likedBy: new Set(), likedAt: {}, likedByAt: {}, admirers: [], matchUsers: [], savedUsers: [], loadedAt: 0 };
+  // rev goes up whenever I change a like myself, so a slower refresh that started earlier can be recognised as stale.
+  return { liked: new Set(), likedBy: new Set(), likedAt: {}, likedByAt: {}, admirers: [], matchUsers: [], savedUsers: [], pendingUsers: [], loadedAt: 0, rev: 0 };
 }
 
 function resetSessionState() {
   stopChatListener();
   userCache.clear();
   social = freshSocial();
+  likeBusy.clear();
   discoverQueue = []; discoverPos = 0; discoverHistory = [];
   decisionLock = false;
   dismissedIds = new Set();
@@ -684,6 +688,7 @@ function activatePanel(name, opts = {}) {
   if (!PANELS[name]) name = "home";
   if (currentPanel === "matches" && name !== "matches") closeChatView();
   currentPanel = name;
+  document.body.dataset.panel = name;   // lets the stylesheet move things out of the way per screen (toasts on Discover)
   document.querySelectorAll("#appScreen .panel").forEach(p => p.classList.toggle("active", p.id === PANELS[name]));
   const group = NAV_GROUP[name] || name;
   document.querySelectorAll("#mainNav .tab").forEach(t => {
@@ -755,14 +760,27 @@ function onGlobalKey(e) {
 // ----------------------------------------------------------------------------
 // Small UI helpers: toasts, dialogs, time, avatars, clipboard
 // ----------------------------------------------------------------------------
-function toast(text, kind) {
+// toast(text, kind, { action: { label, onClick }, ms }): a short message at the bottom of the screen.
+// With an action it gets a button (Undo, Try again) and stays a little longer.
+function toast(text, kind, opts = {}) {
   const host = $("toasts");
   const el = document.createElement("div");
-  el.className = "toast" + (kind ? " " + kind : "");
-  el.textContent = text;
+  el.className = "toast" + (kind ? " " + kind : "") + (opts.action ? " has-action" : "");
+  const msg = document.createElement("span");
+  msg.className = "toast-text";
+  msg.textContent = text;
+  el.appendChild(msg);
+  let timer = 0;
+  const dismiss = () => { clearTimeout(timer); el.classList.add("out"); setTimeout(() => el.remove(), 260); };
+  if (opts.action) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "toast-btn"; b.textContent = opts.action.label;
+    b.onclick = () => { b.disabled = true; dismiss(); opts.action.onClick(); };
+    el.appendChild(b);
+  }
   host.appendChild(el);
   while (host.children.length > 3) host.firstChild.remove();
-  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 260); }, kind === "err" ? 5200 : 3200);
+  timer = setTimeout(dismiss, opts.ms || (kind === "err" ? 5200 : 3200));
 }
 
 function openDialog(id) {
@@ -902,10 +920,16 @@ async function refreshSocial(force) {
   if (!force && Date.now() - social.loadedAt < 15000) return true;
   try {
     const me = currentUser.uid;
+    const mine = social, rev = mine.rev;
     const [fromMe, toMe] = await Promise.all([
       fsQuery("likes", { where: fieldFilter("from", "EQUAL", me) }),
       fsQuery("likes", { where: fieldFilter("to", "EQUAL", me) })
     ]);
+    // Logged out (or switched account) while this was loading: the answer belongs to nobody now.
+    if (mine !== social) return false;
+    // I liked or took back a like while this was loading: what I know locally is newer than this answer.
+    // (loadedAt stays old, so the next refresh asks again.)
+    if (mine.rev !== rev) return true;
     social.liked = new Set(fromMe.map(l => l.to));
     social.likedAt = Object.fromEntries(fromMe.map(l => [l.to, l.createdAt]));
     social.likedBy = new Set(toMe.map(l => l.from));
@@ -1020,7 +1044,9 @@ function stepDeck(dir) {
 function returnToCard(user) {
   const i = discoverQueue.findIndex(u => u.id === user.id);
   if (i < 0) return;
-  if (discoverHistory[discoverHistory.length - 1] === user.id) discoverHistory.pop();
+  // Rewind: the trail forgets everything after this person, so Back goes to whoever came before them.
+  const k = discoverHistory.lastIndexOf(user.id);
+  if (k >= 0) discoverHistory.length = k;
   discoverPos = i;
   renderStack();
   renderHome();
@@ -1195,6 +1221,7 @@ function updateDeckControls() {
   $("passBtn").setAttribute("aria-label", decided ? "Next person" : "Pass");
   set("saveBtn", "saveCap", rel === "saved", rel === "saved" ? "Saved" : "Save", decided);
   set("likeBtn", "likeCap", decided, rel === "matched" ? "Matched" : decided ? "Liked" : "Like", false);
+  if (rel === "liked") $("likeBtn").title = "Tap again to take back your like"; else $("likeBtn").removeAttribute("title");
   $("backBtn").disabled = !canGoBack();
   setDeckCount();
 }
@@ -1349,8 +1376,12 @@ async function createLike(otherId) {
   }
   social.liked.add(otherId);
   social.likedAt[otherId] = new Date().toISOString();
+  social.rev++;
   // Fresh check rather than trusting the cached list: they may have liked me a second ago.
-  const back = await fsGet("likes", `${otherId}_${me}`);
+  // (If this one look-up fails the like is already sent, so fall back on what I knew.)
+  let back = null;
+  try { back = await fsGet("likes", `${otherId}_${me}`); }
+  catch (e) { console.error(e); if (social.likedBy.has(otherId)) back = { createdAt: social.likedByAt[otherId] }; }
   if (back) {
     social.likedBy.add(otherId);
     social.likedByAt[otherId] = back.createdAt;
@@ -1359,24 +1390,93 @@ async function createLike(otherId) {
   return false;
 }
 
+// Sending or taking back a like for one person never overlaps another for the same person:
+// a second tap while the first is running is ignored, and Undo waits for the like it undoes.
 async function likeUser(user, { fromDeck } = {}) {
+  if (likeBusy.has(user.id)) return false;
+  const promise = doLike(user, !!fromDeck);
+  likeBusy.set(user.id, { kind: "like", promise });
+  try { return await promise; } finally { likeBusy.delete(user.id); }
+}
+
+// Returns true when the like went through.
+async function doLike(user, fromDeck) {
+  // Where they were before this like, so Undo can put them back there (Saved shortlist, Passed).
+  const undo = { restore: { wasSaved: (myProfile.saved || []).includes(user.id), wasPassed: dismissedIds.has(user.id) }, fromDeck };
+  let matched;
   try {
-    const matched = await createLike(user.id);
-    undismissUser(user.id);           // a like replaces an earlier pass
-    if (matched) await onMatch(user);
-    else { await Promise.all([renderAdmirers(), renderSaved()]); renderHome(); toast(`You liked ${firstName(user)}.`); }
-    // A like settles it, so they leave my Saved shortlist.
-    if ((myProfile.saved || []).includes(user.id)) await unsaveProfile(user.id, { quiet: true });
+    matched = await createLike(user.id);
   } catch (e) {
     console.error(e);
     toast("Couldn't send that like. Check your connection and try again.", "err");
     if (fromDeck) returnToCard(user);   // put them back on top so the like isn't silently lost
+    refreshDeckLabels();
+    return false;
   }
+  // From here the like is saved; anything that goes wrong below is only a screen that didn't refresh.
+  undismissUser(user.id);               // a like replaces an earlier pass
+  if (matched) {
+    try { await onMatch(user, undo); } catch (e) { console.error(e); }
+  } else {
+    toast(`You liked ${firstName(user)}.`, "", { ms: 7000, action: { label: "Undo", onClick: () => takeBackLike(user, undo) } });
+    try { await Promise.all([renderAdmirers(), renderSaved(), renderPending()]); renderHome(); } catch (e) { console.error(e); }
+  }
+  // A like settles it, so they leave my Saved shortlist (Undo puts them back).
+  if (undo.restore.wasSaved) { try { await unsaveProfile(user.id, { quiet: true }); } catch (e) { console.error(e); } }
   refreshDeckLabels();
+  return true;
 }
 
-async function onMatch(user) {
-  showMatchDialog(user);
+// Take my like back. Undo (right after a like) passes `restore`: where they were before I liked them,
+// so someone I had saved or passed on goes back there. A later take-back just makes them someone I
+// haven't decided on. Returns true once the like is gone.
+async function takeBackLike(user, { restore, fromDeck } = {}) {
+  const running = likeBusy.get(user.id);
+  if (running) {
+    if (running.kind === "takeback") return false;       // already on its way
+    await running.promise.catch(() => {});                // let the like finish first, then undo it
+    if (likeBusy.has(user.id)) return false;
+  }
+  const promise = doTakeBack(user, { restore, fromDeck });
+  likeBusy.set(user.id, { kind: "takeback", promise });
+  try { return await promise; } finally { likeBusy.delete(user.id); }
+}
+
+async function doTakeBack(user, { restore, fromDeck }) {
+  const id = user.id;
+  if (!social.liked.has(id)) return true;                 // nothing left to take back
+  const wasMatch = social.likedBy.has(id);
+  try {
+    if (!(await fsDelete("likes", `${currentUser.uid}_${id}`))) throw new Error("the like was not removed");
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't take back that like. Check your connection and try again.", "err",
+      { ms: 7000, action: { label: "Try again", onClick: () => takeBackLike(user, { restore, fromDeck }) } });
+    return false;
+  }
+  social.liked.delete(id);
+  delete social.likedAt[id];
+  social.rev++;
+  toast(restore ? "Like undone." : `You took back your like for ${firstName(user)}.`);
+  try {
+    if (wasMatch) {
+      // The chat only existed because of the match.
+      if (currentChatPartner && currentChatPartner.id === id) closeChatView();
+      await deleteChatWith(id);
+    }
+  } catch (e) { console.error(e); }
+  if (restore && restore.wasPassed) dismissUser(id);
+  try {
+    if (restore && restore.wasSaved) await saveProfile(user, { quiet: true });
+    await Promise.all([wasMatch ? loadMatches() : renderPending(), renderAdmirers(), renderSaved()]);
+    renderHome();
+  } catch (e) { console.error(e); }
+  if (fromDeck && currentPanel === "discover") returnToCard(user); else refreshDeckLabels();
+  return true;
+}
+
+async function onMatch(user, undo) {
+  showMatchDialog(user, undo);
   await Promise.all([loadMatches(), renderAdmirers(), renderSaved()]);
   renderHome();
   sendPushToUser(user.id, { title: "New match!", body: `You and ${myProfile.displayName} matched on TUMingle.` });
@@ -1408,7 +1508,12 @@ function undismissUser(id) {
 }
 
 function wireDiscover() {
-  $("likeBtn").onclick = () => triggerDecision("like");
+  $("likeBtn").onclick = () => {
+    const u = currentCard();
+    // A filled heart is a toggle: tap it again to take the like back (this card stays on screen).
+    if (u && relationOf(u.id) === "liked") { takeBackLike(u); return; }
+    triggerDecision("like");
+  };
   $("passBtn").onclick = () => triggerDecision("pass");
   $("saveBtn").onclick = () => triggerDecision("save");
   $("backBtn").onclick = goBack;
@@ -1426,14 +1531,14 @@ function renderSavedPill() {
   b.textContent = n; b.hidden = n === 0;
 }
 
-async function saveProfile(user, { fromDeck } = {}) {
+async function saveProfile(user, { fromDeck, quiet } = {}) {
   const saved = Array.from(new Set([...(myProfile.saved || []), user.id])).slice(-60);
   const before = myProfile.saved || [];
   myProfile.saved = saved;
   renderSavedPill();
   try {
     if (!myProfile._unsaved) await fsSet("users", currentUser.uid, { saved });
-    toast(`${firstName(user)} saved to your shortlist.`);
+    if (!quiet) toast(`${firstName(user)} saved to your shortlist.`);
     await renderSaved();
     renderHome();
   } catch (e) {
@@ -1474,14 +1579,21 @@ async function removeConnection(otherId) {
     fsDelete("likes", `${otherId}_${me}`)
   ]);
   if (likeResults.some(ok => !ok)) throw new Error("Couldn't remove the like records");
+  await deleteChatWith(otherId);
+  social.liked.delete(otherId); social.likedBy.delete(otherId);
+  delete social.likedAt[otherId]; delete social.likedByAt[otherId];
+  social.rev++;
+}
+
+// Delete every message between me and them (both directions).
+async function deleteChatWith(otherId) {
+  const me = currentUser.uid;
   const [mine, theirs] = await Promise.all([
     fetchDirectionWithIds(me, otherId),
     fetchDirectionWithIds(otherId, me)
   ]);
-  const msgResults = await Promise.all([...mine, ...theirs].map(m => fsDelete("messages", m.id)));
-  if (msgResults.some(ok => !ok)) throw new Error("Couldn't delete every message");
-  social.liked.delete(otherId); social.likedBy.delete(otherId);
-  delete social.likedAt[otherId]; delete social.likedByAt[otherId];
+  const results = await Promise.all([...mine, ...theirs].map(m => fsDelete("messages", m.id)));
+  if (results.some(ok => !ok)) throw new Error("Couldn't delete every message");
 }
 
 async function blockUser(u, { fromChat } = {}) {
@@ -1528,12 +1640,15 @@ async function reportUser(u) {
 // ============================================================================
 // MATCHES + CHAT
 // ============================================================================
+let matchesToken = 0;
 async function loadMatches() {
+  const token = ++matchesToken;
   const list = $("matchesList");
   try {
     const ids = matchIds().sort((a, b) => matchedAt(b) - matchedAt(a));
     const users = (await Promise.all(ids.map(getUser))).filter(Boolean)
       .filter(u => !(u.blocked || []).includes(currentUser.uid) && !(myProfile.blocked || []).includes(u.id));
+    if (token !== matchesToken) return;   // a newer refresh is already on its way
     social.matchUsers = users;
     if (users.length === 0) {
       list.innerHTML = `
@@ -1565,6 +1680,7 @@ async function loadMatches() {
     list.innerHTML = '<div class="empty-state">Couldn\'t load matches. Try again shortly.</div>';
   }
   renderMatchOpeners();
+  await renderPending();
 }
 
 function wireMatches() {
@@ -1789,6 +1905,7 @@ async function unmatchUser(otherId) {
 function personCard(u, kind) {
   const c = compat(u);
   const photo = photosOf(u)[0];
+  const when = kind === "waiting" ? relTime(social.likedAt[u.id]) : "";
   const el = document.createElement("article");
   el.className = "person";
   el.innerHTML = `
@@ -1797,6 +1914,7 @@ function personCard(u, kind) {
       <h3>${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
       <p class="dept">${esc(u.department || "Department not set")}</p>
       <p class="why">${c.pct > 0 ? `<b class="pct">${c.pct}% match</b> ` : ""}${esc(whyLine(c))}</p>
+      ${when ? `<p class="when">You liked them ${esc(when)}.</p>` : ""}
       <div class="person-actions"></div>
     </div>`;
   const actions = el.querySelector(".person-actions");
@@ -1806,15 +1924,25 @@ function personCard(u, kind) {
     actions.appendChild(b);
   };
   el.querySelector(".person-photo").onclick = () => openProfileDialog(u, { mode: kind });
+  // A button that sends a like stays disabled while it works and comes back if the like fails.
+  const likeAction = (label) => mk(label, "btn-gold", async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    if (!(await likeUser(u))) b.disabled = false;
+  });
   if (kind === "admirer") {
-    mk("Like back", "btn-gold", async (e) => { e.currentTarget.disabled = true; await likeUser(u); });
+    likeAction("Like back");
     mk("Not now", "ghost", async () => {
       dismissUser(u.id);
       await renderAdmirers(); renderHome();
       toast("Hidden. They won't show here again.");
     });
+  } else if (kind === "waiting") {
+    mk("Take back", "ghost", async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      if (!(await takeBackLike(u))) b.disabled = false;
+    });
   } else {
-    mk("Like", "btn-gold", async (e) => { e.currentTarget.disabled = true; await unsaveProfile(u.id, { quiet: true }); await likeUser(u); });
+    likeAction("Like");     // a like takes them off the shortlist once it has gone through
     mk("Remove", "ghost", () => unsaveProfile(u.id));
   }
   return el;
@@ -1849,6 +1977,29 @@ async function renderAdmirers() {
   users.forEach(u => list.appendChild(personCard(u, "admirer")));
 }
 
+// People I liked who haven't liked me back yet (newest first), each with a Take back button.
+let pendingToken = 0;
+async function renderPending() {
+  const token = ++pendingToken;
+  try {
+    const blocked = new Set(myProfile.blocked || []);
+    const ids = [...social.liked]
+      .filter(id => id !== currentUser.uid && !social.likedBy.has(id) && !blocked.has(id))
+      .sort((a, b) => (Date.parse(social.likedAt[b]) || 0) - (Date.parse(social.likedAt[a]) || 0));
+    const shown = ids.slice(0, 50);
+    const users = (await Promise.all(shown.map(getUser))).filter(u => u && !(u.blocked || []).includes(currentUser.uid));
+    if (token !== pendingToken) return;
+    social.pendingUsers = users;
+    const list = $("pendingList");
+    list.innerHTML = "";
+    users.forEach(u => list.appendChild(personCard(u, "waiting")));
+    $("pendingWrap").hidden = users.length === 0;
+    $("pendingMore").hidden = ids.length <= shown.length;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 let savedToken = 0;
 async function renderSaved() {
   const token = ++savedToken;
@@ -1878,10 +2029,14 @@ function wireSaved() { /* same */ }
 // ============================================================================
 // DIALOGS: match celebration, full profile
 // ============================================================================
-function showMatchDialog(u) {
+function showMatchDialog(u, undo = {}) {
   $("matchAvatars").innerHTML = `${avatarHTML(myProfile, "xl")}${avatarHTML(u, "xl")}`;
   $("matchSub").textContent = `You and ${u.displayName} liked each other.`;
   $("matchSayHi").onclick = () => { closeDialog("matchDialog"); openChatFromAnywhere(u); };
+  // Liked by mistake? Taking the like back also ends the match.
+  const undoBtn = $("matchUndo");
+  undoBtn.disabled = false;
+  undoBtn.onclick = () => { undoBtn.disabled = true; closeDialog("matchDialog"); takeBackLike(u, undo); };
   openDialog("matchDialog");
 }
 
@@ -1910,8 +2065,10 @@ function openProfileDialog(u, { mode } = {}) {
     mk("Like back", "btn-gold", async () => { closeDialog("profileDialog"); await likeUser(u); });
     mk("Not now", "ghost", async () => { closeDialog("profileDialog"); dismissUser(u.id); await renderAdmirers(); renderHome(); });
   } else if (mode === "saved") {
-    mk("Like", "btn-gold", async () => { closeDialog("profileDialog"); await unsaveProfile(u.id, { quiet: true }); await likeUser(u); });
+    mk("Like", "btn-gold", async () => { closeDialog("profileDialog"); await likeUser(u); });
     mk("Remove from Saved", "ghost", async () => { closeDialog("profileDialog"); await unsaveProfile(u.id); });
+  } else if (mode === "waiting") {
+    mk("Take back my like", "ghost", async () => { closeDialog("profileDialog"); await takeBackLike(u); });
   } else if (mode === "match" && currentChatPartner && currentChatPartner.id === u.id) {
     mk("Back to chat", "btn-gold", () => closeDialog("profileDialog"));
   } else if (social.liked.has(u.id) && social.likedBy.has(u.id)) {
