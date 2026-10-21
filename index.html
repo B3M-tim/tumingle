@@ -309,6 +309,8 @@ body.signed-in .btn.btn-gold:hover{background:var(--t-gold-hi); border-color:var
 body.signed-in .btn.ghost{background:transparent; border-color:var(--t-edge); color:var(--t-ink);}
 body.signed-in .btn.ghost:hover{background:rgba(11,16,32,.05); border-color:var(--t-ink);}
 body.signed-in .btn.danger{background:var(--t-bad); border-color:var(--t-bad); color:#fff;}
+body.signed-in .btn.ghost.warn{color:var(--t-bad); border-color:var(--t-bad);}
+body.signed-in .btn.ghost.warn:hover{background:rgba(180,35,24,.08); border-color:var(--t-bad);}
 body.signed-in .btn.danger:hover{background:#9C1F18; border-color:#9C1F18;}
 body.signed-in .link-btn{
   background:none; border:0; padding:6px 4px; min-height:36px; color:var(--t-gold-ink);
@@ -801,6 +803,9 @@ dialog[open]{animation:dlg-in .2s ease-out;}
 .dlg-actions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; margin-top:18px;}
 .dlg-actions.col{flex-direction:column; align-items:stretch;}
 .dlg-actions .btn{flex:0 1 auto;}
+#deleteAccountForm .field{margin-top:16px;}
+#deleteAccountForm .msg{margin:14px 0 0;}
+#deleteAccountForm .msg:empty{display:none;}
 .dlg textarea{
   width:100%; min-height:110px; margin-top:14px; padding:12px 14px; resize:vertical;
   border:1.5px solid #8791A8; border-radius:14px; font:inherit; font-size:1rem; color:#0B1020;
@@ -1390,7 +1395,9 @@ body.in-chat .fab{display:none;}
       <div class="actions">
         <button type="button" class="btn ghost" id="logoutBtn2">Log out</button>
         <button type="button" class="btn ghost" id="resetPassesBtn">Clear passed profiles</button>
+        <button type="button" class="btn ghost warn" id="deleteAccountBtn">Delete my account</button>
       </div>
+      <p class="fine" style="margin-top:12px">Deleting your account removes your profile, likes, matches and chats for good.</p>
     </div>
   </section>
 </main>
@@ -1406,6 +1413,22 @@ body.in-chat .fab{display:none;}
     <div class="dlg-actions">
       <button class="btn ghost" id="uiCancel" value="cancel" formnovalidate>Cancel</button>
       <button class="btn btn-gold" id="uiOk" value="ok">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="deleteAccountDialog" aria-labelledby="delTitle" aria-describedby="delBody">
+  <form class="dlg" id="deleteAccountForm" novalidate>
+    <h2 id="delTitle">Delete your account?</h2>
+    <p id="delBody">This permanently deletes your profile, photos, likes, matches and chats, and removes your login. It can't be undone.</p>
+    <div class="field">
+      <label for="delPassword">Enter your password to confirm</label>
+      <input id="delPassword" type="password" autocomplete="current-password" maxlength="200">
+    </div>
+    <p class="msg" id="delMsg" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="delCancel">Cancel</button>
+      <button type="submit" class="btn danger" id="delConfirm">Delete my account</button>
     </div>
   </form>
 </dialog>

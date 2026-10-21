@@ -111,7 +111,64 @@ const FS_BASE = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.p
 // without this flag, the listener would see no profile yet and wrongly
 // boot a brand-new user back to the auth screen with an error.
 let signupInFlight = false;
-let tokenRefreshTimer = null;
+
+// ----------------------------------------------------------------------------
+// SESSION HEALTH: a fresh token for every request, and a clear end when the account is gone
+// ----------------------------------------------------------------------------
+let authNotice = null;       // { text, kind }: shown on the login screen after the app signs me out by itself
+let deletingAccount = false; // true while "Delete my account" runs, so nothing writes my profile back
+// Errors that mean "this login is finished for good": the account was deleted or disabled, or its sign-in expired.
+const DEAD_SESSION_CODES = new Set(["auth/user-not-found", "auth/user-token-expired", "auth/user-disabled", "auth/invalid-user-token"]);
+const DEAD_SESSION_TEXT = "You were signed out because this account was removed or your session expired. Log in again.";
+function isDeadSession(e) { return !!(e && DEAD_SESSION_CODES.has(e.code)); }
+
+function endSession(text, kind) {
+  authNotice = { text, kind: kind || "err" };
+  if (!currentUser) { flushAuthNotice(); return Promise.resolve(); }   // already signed out: just say why
+  return window.__fbAuthMod.signOut(auth).catch(() => {});             // the auth listener shows the notice
+}
+function flushAuthNotice() {
+  if (!authNotice) return;
+  showMsg("authMsg", authNotice.text, authNotice.kind);
+  authNotice = null;
+}
+
+// The current ID token. The SDK hands back its cached copy and only goes to the network when it is close to
+// expiring, so asking before every request is cheap and, unlike a timer, still right after a phone slept for hours.
+async function authToken(force) {
+  const user = currentUser || (auth && auth.currentUser);
+  if (!user) throw Object.assign(new Error("not signed in"), { code: "app/not-signed-in" });
+  try {
+    idToken = await user.getIdToken(!!force);
+    return idToken;
+  } catch (e) {
+    if (isDeadSession(e)) endSession(DEAD_SESSION_TEXT);
+    throw e;
+  }
+}
+
+// fetch() with the bearer token; if the server refuses the token, get a brand-new one and try once more.
+async function authedFetch(url, init = {}) {
+  const send = async (force) => fetch(url, { ...init, headers: { ...(init.headers || {}), "Authorization": `Bearer ${await authToken(force)}` } });
+  const res = await send(false);
+  return res.status === 401 ? send(true) : res;
+}
+
+let sessionCheckAt = 0, sessionChecking = false;
+// Is this login still valid? Asks the sign-in service (not the database, so it costs no reads). Runs when the app
+// comes back to the foreground, so an account deleted in the Firebase console is noticed at once, not an hour later.
+async function checkSessionAlive() {
+  const user = currentUser;
+  if (!user || sessionChecking || Date.now() - sessionCheckAt < 60000) return;
+  sessionChecking = true; sessionCheckAt = Date.now();
+  try { await user.reload(); }
+  catch (e) { if (isDeadSession(e)) endSession(DEAD_SESSION_TEXT); }   // any other error (offline) means "ask again later"
+  finally { sessionChecking = false; }
+}
+function wireSessionChecks() {
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkSessionAlive(); });
+  window.addEventListener("online", checkSessionAlive);
+}
 
 function toFirestoreFields(obj) {
   const fields = {};
@@ -142,9 +199,7 @@ function fromFirestoreFields(fields) {
 }
 
 async function fsGet(collection, docId) {
-  const res = await fetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`, {
-    headers: { "Authorization": `Bearer ${idToken}` }
-  });
+  const res = await authedFetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`);
   if (res.status === 404) {
     // A 404 means two very different things: "no such document" (normal —
     // return null) or "no such DATABASE" (an addressing/setup problem that
@@ -194,15 +249,26 @@ async function fsSet(collection, docId, data) {
       try { Object.assign(myProfile, normalizeProfile(await fsGet("users", docId))); } catch (_) { /* keep the local copy */ }
     }
   }
-  const maskParams = Object.keys(data)
-    .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
-    .join("&");
-  const url = `${FS_BASE}/${collection}/${encodeURIComponent(docId)}${maskParams ? "?" + maskParams : ""}`;
-  const res = await fetch(url, {
+  const params = Object.keys(data).map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`);
+  // An edit must never create a profile by accident: a half-empty one has no `verified` field, and the rules
+  // refuse every later update to it. So an edit only applies to a profile that exists.
+  if (collection === "users") params.push("currentDocument.exists=true");
+  const url = `${FS_BASE}/${collection}/${encodeURIComponent(docId)}${params.length ? "?" + params.join("&") : ""}`;
+  const res = await authedFetch(url, {
     method: "PATCH",
-    headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: toFirestoreFields(data) })
   });
+  if (res.status === 404 && collection === "users" && currentUser && docId === currentUser.uid) {
+    // My profile document is gone while I'm signed in (someone deleted it in the console, say).
+    // If my login is gone too, end the session; if only the document is gone, write the whole profile again.
+    if (deletingAccount) throw new Error("account is being deleted");
+    try { await currentUser.reload(); }
+    catch (e) { if (isDeadSession(e)) endSession(DEAD_SESSION_TEXT); throw e; }
+    const { id: _id, _unsaved, ...local } = myProfile || {};
+    await fsCreate("users", docId, { ...defaultProfileFor(currentUser.email), ...local, ...data });
+    return {};
+  }
   if (!res.ok) {
     const err = new Error(`fsSet ${collection}/${docId}: ${res.status} ${await res.text()}`);
     err.status = res.status;
@@ -218,9 +284,9 @@ async function fsSet(collection, docId, data) {
 // used for edits to a document that already exists.
 async function fsCreate(collection, docId, data) {
   const url = `${FS_BASE}/${collection}?documentId=${encodeURIComponent(docId)}`;
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fields: toFirestoreFields(data) })
   });
   if (!res.ok) {
@@ -234,10 +300,7 @@ async function fsCreate(collection, docId, data) {
 }
 
 async function fsDelete(collection, docId) {
-  const res = await fetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`, {
-    method: "DELETE",
-    headers: { "Authorization": `Bearer ${idToken}` }
-  });
+  const res = await authedFetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`, { method: "DELETE" });
   return res.ok || res.status === 404;
 }
 
@@ -343,6 +406,7 @@ async function initFirebase() {
   firebaseApp = initializeApp(firebaseConfig);
   auth = authMod.getAuth(firebaseApp);
   firestoreDb = fsMod.getFirestore(firebaseApp);
+  wireSessionChecks();
 
   authMod.onAuthStateChanged(auth, async (user) => {
     if (!user) {
@@ -350,18 +414,23 @@ async function initFirebase() {
       currentUser = null; idToken = null; myProfile = null;
       setAuthStatus("Logged out");
       showScreen("auth");
+      flushAuthNotice();
       return;
     }
     currentUser = user;
-    idToken = await user.getIdToken();
-    // Keep token fresh for long sessions. Clear any previous timer first —
-    // this listener can fire more than once per page load (e.g. external
-    // token changes), and without clearing we'd stack up a new interval
-    // each time.
-    if (tokenRefreshTimer) clearInterval(tokenRefreshTimer);
-    tokenRefreshTimer = setInterval(async () => {
-      try { idToken = await currentUser.getIdToken(true); } catch (_) {}
-    }, 50 * 60 * 1000);
+    try {
+      await authToken();
+    } catch (e) {
+      // No token right now (offline at start-up, say): say so instead of hanging on the splash screen.
+      console.error(e);
+      if (!isDeadSession(e)) {
+        currentUser = null;
+        setAuthStatus("Offline", "err");
+        showMsg("authMsg", "Couldn't reach the server. Check your connection and refresh.", "err");
+        showScreen("auth");
+      }
+      return;
+    }
 
     try {
       myProfile = await fsGet("users", user.uid);
@@ -614,6 +683,7 @@ function resetSessionState() {
   userCache.clear();
   social = freshSocial();
   likeBusy.clear();
+  deletingAccount = false;
   discoverQueue = []; discoverPos = 0; discoverHistory = [];
   decisionLock = false;
   dismissedIds = new Set();
@@ -645,6 +715,7 @@ function enterApp() {
     wireScam();
     wireSafety();
     wireProfile();
+    wireDeleteAccount();
     wirePush();
     window.addEventListener("hashchange", onHashChange);
   }
@@ -949,7 +1020,7 @@ function matchedAt(id) {
 async function getUser(id) {
   if (userCache.has(id)) return userCache.get(id);
   const u = await fsGet("users", id);
-  if (!u) return null;
+  if (!u || u.deleted === true) return null;   // gone, or blanked by "Delete my account"
   const n = normalizeProfile(u);
   userCache.set(id, n);
   return n;
@@ -1065,7 +1136,7 @@ async function loadDiscover(socialOk) {
   hideMsg("discoverMsg");
   const keep = currentCard() ? currentCard().id : null;   // stay on the same person across a reload
   try {
-    const all = (await fetchUsersBatch()).map(normalizeProfile);
+    const all = (await fetchUsersBatch()).filter(u => u.deleted !== true).map(normalizeProfile);
     all.forEach(u => userCache.set(u.id, u));
     const blocked = new Set(myProfile.blocked || []);
     // Everyone I'm allowed to see stays in the deck, whatever I did with them: liked,
@@ -1637,6 +1708,90 @@ async function reportUser(u) {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Delete my account: everything of mine in the database, then the login itself
+// ----------------------------------------------------------------------------
+// Delete every document a query finds, repeating until none are left (one query returns at most 300).
+async function deleteAllWhere(collection, filter) {
+  for (let round = 0; round < 50; round++) {
+    const rows = await fsQuery(collection, { where: filter });
+    if (!rows.length) return;
+    for (let i = 0; i < rows.length; i += 15) {
+      const results = await Promise.all(rows.slice(i, i + 15).map(r => fsDelete(collection, r.id)));
+      if (results.some(ok => !ok)) throw new Error(`Couldn't delete every ${collection} document`);
+    }
+  }
+  throw new Error(`Too many ${collection} documents to delete in one go`);
+}
+
+async function deleteMyAccount(password) {
+  const user = currentUser, me = user.uid, authMod = window.__fbAuthMod;
+  deletingAccount = true;
+  try {
+    // 1. Prove it's me. Doing this first means a wrong password costs nothing, and the login can be removed at the end.
+    await authMod.reauthenticateWithCredential(user, authMod.EmailAuthProvider.credential(user.email, password));
+    // 2. Likes, matches and chats, in both directions.
+    await deleteAllWhere("messages", fieldFilter("from", "EQUAL", me));
+    await deleteAllWhere("messages", fieldFilter("to", "EQUAL", me));
+    await deleteAllWhere("likes", fieldFilter("from", "EQUAL", me));
+    await deleteAllWhere("likes", fieldFilter("to", "EQUAL", me));
+    // 3. The profile. If the published rules don't allow deleting it yet, blank it and mark it deleted, so nobody sees it.
+    if (!myProfile._unsaved && !(await fsDelete("users", me))) {
+      await fsSet("users", me, { deleted: true, displayName: "Deleted user", bio: "", course: "", department: "", year: "", gender: "", interests: [], photos: [], saved: [], blocked: [] });
+    }
+    // 4. This phone's memory of me, then the login itself.
+    try { localStorage.removeItem(dismissKey()); } catch (_) { /* storage blocked */ }
+    authNotice = { text: "Your account has been deleted.", kind: "ok" };
+    try {
+      await authMod.deleteUser(user);
+    } catch (e) {
+      authNotice = null;
+      e.loginStep = true;       // the data is already gone; only the login is left
+      throw e;
+    }
+  } catch (e) {
+    deletingAccount = false;
+    throw e;
+  }
+}
+
+function deleteAccountErrorText(e) {
+  const code = (e && e.code) || "";
+  if (e && e.loginStep) return "Your profile, likes and chats are deleted, but your login couldn't be removed. Tap Delete my account again to finish.";
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/invalid-login-credentials") return "That password isn't right.";
+  if (code === "auth/too-many-requests") return "Too many attempts. Wait a few minutes and try again.";
+  if (code === "auth/network-request-failed") return "Couldn't reach the server. Check your connection and try again.";
+  if (code === "auth/requires-recent-login") return "For safety, log out, log in again, then delete your account.";
+  return "We couldn't finish deleting everything. Some of your data may already be gone. Try again to finish.";
+}
+
+function wireDeleteAccount() {
+  const dlg = $("deleteAccountDialog"), pw = $("delPassword"), confirmBtn = $("delConfirm");
+  $("deleteAccountBtn").onclick = () => {
+    pw.value = ""; hideMsg("delMsg"); confirmBtn.disabled = false;
+    openDialog("deleteAccountDialog");
+    pw.focus();
+  };
+  $("delCancel").onclick = () => { if (!confirmBtn.disabled) closeDialog("deleteAccountDialog"); };
+  // While it is deleting, Escape must not close the dialog.
+  dlg.addEventListener("cancel", (e) => { if (confirmBtn.disabled) e.preventDefault(); });
+  $("deleteAccountForm").onsubmit = async (e) => {
+    e.preventDefault();
+    if (confirmBtn.disabled) return;
+    if (!pw.value) return showMsg("delMsg", "Enter your password to confirm.", "err");
+    confirmBtn.disabled = true;
+    showMsg("delMsg", "Deleting your account…", "info");
+    try {
+      await deleteMyAccount(pw.value);
+      closeDialog("deleteAccountDialog");
+    } catch (err) {
+      console.error(err);
+      showMsg("delMsg", deleteAccountErrorText(err), "err");
+      confirmBtn.disabled = false;
+    }
+  };
+}
+
 // ============================================================================
 // MATCHES + CHAT
 // ============================================================================
@@ -2005,9 +2160,16 @@ async function renderSaved() {
   const token = ++savedToken;
   const list = $("savedList");
   const ids = [...(myProfile.saved || [])].reverse();
-  const users = (await Promise.all(ids.map(getUser)))
-    .filter(u => u && !(u.blocked || []).includes(currentUser.uid) && !(myProfile.blocked || []).includes(u.id));
+  const found = await Promise.all(ids.map(getUser));
+  const users = found.filter(u => u && !(u.blocked || []).includes(currentUser.uid) && !(myProfile.blocked || []).includes(u.id));
   if (token !== savedToken) return;
+  // Someone whose profile no longer exists can't be on my shortlist: drop them, so the count matches the list.
+  const gone = ids.filter((id, i) => !found[i]);
+  if (gone.length && !myProfile._unsaved) {
+    myProfile.saved = (myProfile.saved || []).filter(id => !gone.includes(id));
+    renderSavedPill();
+    fsSet("users", currentUser.uid, { saved: myProfile.saved }).catch(e => console.error(e));
+  }
   social.savedUsers = users;
   if (!users.length) {
     list.innerHTML = `
