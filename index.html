@@ -803,6 +803,7 @@ dialog[open]{animation:dlg-in .2s ease-out;}
 .dlg-actions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; margin-top:18px;}
 .dlg-actions.col{flex-direction:column; align-items:stretch;}
 .dlg-actions .btn{flex:0 1 auto;}
+.sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;}
 #deleteAccountForm .field{margin-top:16px;}
 #deleteAccountForm .msg{margin:14px 0 0;}
 #deleteAccountForm .msg:empty{display:none;}
@@ -968,14 +969,14 @@ body.in-chat .fab{display:none;}
 
     <div class="auth-body">
       <div class="auth-card">
-        <div id="authMsg" class="msg"></div>
+        <div id="authMsg" class="msg" role="alert"></div>
 
         <div id="loginForm">
           <h2>Welcome back</h2>
           <p class="auth-card-sub">Log in, or create your account below — no separate signup needed.</p>
-          <div class="field"><label>Email</label><input id="loginEmail" type="email" placeholder="you@gmail.com"></div>
-          <div class="field"><label>Password</label><input id="loginPassword" type="password"></div>
-          <button class="btn auth-submit" id="loginBtn">Continue</button>
+          <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" placeholder="you@gmail.com" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" enterkeyhint="next"></div>
+          <div class="field"><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" enterkeyhint="go"></div>
+          <button type="button" class="btn auth-submit" id="loginBtn">Continue</button>
           <p class="hint center">First time? Just enter an email and password above — your account is created automatically. Returning? The same box logs you back in. By continuing you confirm you're 18 or older.</p>
         </div>
       </div>
@@ -1076,11 +1077,11 @@ body.in-chat .fab{display:none;}
     <div id="pendingWrap" hidden>
       <h2 class="sec-title" id="pendingTitle">Waiting for a reply</h2>
       <p class="sec-note">People you liked who haven't liked you back yet. Changed your mind? Take the like back.</p>
-      <div id="pendingList" class="person-list" aria-labelledby="pendingTitle"></div>
+      <div id="pendingList" class="person-list" role="group" aria-labelledby="pendingTitle"></div>
       <p class="fine" id="pendingMore" hidden>Showing your 50 most recent likes.</p>
     </div>
 
-    <div id="chatView" aria-label="Chat">
+    <div id="chatView" role="region" aria-label="Chat">
       <div class="chat-head">
         <button type="button" class="icon-btn" id="backToMatches" aria-label="Back to matches"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg></button>
         <span class="av" id="chatAvatar" role="img" aria-label=""></span>
@@ -1330,7 +1331,7 @@ body.in-chat .fab{display:none;}
     <div class="surface">
       <h2>Photos</h2>
       <div class="photo-grid" id="photoGrid"></div>
-      <p class="fine">Tap + to add a photo. Tap a photo to make it your primary. Up to 6 photos, 5 MB each. Everyone on TUMingle can see them.</p>
+      <p class="fine">Tap + to add a photo. Tap a photo to make it your primary. Up to 6 photos. Their location and phone details are removed before they upload. Everyone on TUMingle can see them.</p>
       <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/webp" hidden>
     </div>
 

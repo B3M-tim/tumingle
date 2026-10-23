@@ -81,7 +81,13 @@ function esc(s) {
 // cannot contain quotes, parentheses, spaces or backslashes — and drop
 // anything else instead of trusting it.
 function safePhotoUrl(url) {
-  return typeof url === "string" && /^https:\/\/res\.cloudinary\.com\/[\w\-\/\.%]+$/.test(url) ? url : "";
+  if (typeof url !== "string") return "";
+  const m = /^https:\/\/res\.cloudinary\.com\/([\w\-]+)\/[\w\-\/\.%]+$/.exec(url);
+  if (!m) return "";
+  // Only pictures from this app's own Cloudinary account: a profile could otherwise point at anyone's.
+  const own = typeof cloudinaryConfig === "object" && cloudinaryConfig ? String(cloudinaryConfig.cloudName || "") : "";
+  if (own && !own.startsWith("PASTE_") && m[1] !== own) return "";
+  return url;
 }
 
 // ============================================================================
@@ -198,6 +204,26 @@ function fromFirestoreFields(fields) {
   return out;
 }
 
+// A record read from the database. Two things in a stored document must never be believed:
+//  - an "id" field: the real document id always wins (otherwise a profile could pass for someone else, and a like,
+//    block, report or delete meant for one person would land on another);
+//  - names starting with "_" or "__proto__": the app keeps its own bookkeeping under "_" names (_unsaved, _state).
+function docRecord(id, data) {
+  const out = { id };
+  if (data && typeof data === "object") {
+    for (const k of Object.keys(data)) {
+      if (k === "id" || k === "__proto__" || k.charAt(0) === "_") continue;
+      out[k] = data[k];
+    }
+  }
+  return out;
+}
+// A chat message carries exactly these five things; anything else stored with it is ignored.
+function messageRecord(id, data) {
+  const d = data && typeof data === "object" ? data : {};
+  return { id, from: d.from, to: d.to, text: d.text, createdAt: d.createdAt };
+}
+
 async function fsGet(collection, docId) {
   const res = await authedFetch(`${FS_BASE}/${collection}/${encodeURIComponent(docId)}`);
   if (res.status === 404) {
@@ -217,7 +243,7 @@ async function fsGet(collection, docId) {
     throw err;
   }
   const doc = await res.json();
-  return { id: docId, ...fromFirestoreFields(doc.fields) };
+  return docRecord(docId, fromFirestoreFields(doc.fields));
 }
 
 // IMPORTANT: Firestore's REST PATCH replaces the ENTIRE document unless an
@@ -319,7 +345,7 @@ async function fsQuery(collectionId, { where, limit: limitCount } = {}) {
   constraints.push(fsMod.limit(limitCount || 300));
   const q = fsMod.query(fsMod.collection(firestoreDb, collectionId), ...constraints);
   const snapshot = await fsMod.getDocs(q);
-  return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snapshot.docs.map(d => docRecord(d.id, d.data()));
 }
 
 // Translates this file's plain filter descriptors (built by fieldFilter()/
@@ -408,70 +434,95 @@ async function initFirebase() {
   firestoreDb = fsMod.getFirestore(firebaseApp);
   wireSessionChecks();
 
-  authMod.onAuthStateChanged(auth, async (user) => {
+  authMod.onAuthStateChanged(auth, (user) => {
     if (!user) {
+      sessionRun++; sessionUid = null;       // anything still loading for the old session is now stale
       resetSessionState();
       currentUser = null; idToken = null; myProfile = null;
+      if (appEntered) clearPrivateScreens();   // after the memory is empty, so nothing is redrawn from it
       setAuthStatus("Logged out");
       showScreen("auth");
       flushAuthNotice();
       return;
     }
-    currentUser = user;
-    try {
-      await authToken();
-    } catch (e) {
-      // No token right now (offline at start-up, say): say so instead of hanging on the splash screen.
-      console.error(e);
-      if (!isDeadSession(e)) {
-        currentUser = null;
-        setAuthStatus("Offline", "err");
-        showMsg("authMsg", "Couldn't reach the server. Check your connection and refresh.", "err");
-        showScreen("auth");
-      }
-      return;
-    }
-
-    try {
-      myProfile = await fsGet("users", user.uid);
-      if (!myProfile && signupInFlight) {
-        // The signup handler is writing this profile right now — this is
-        // just the listener winning a race against it. Wait briefly and
-        // look again.
-        await new Promise(r => setTimeout(r, 700));
-        myProfile = await fsGet("users", user.uid);
-      }
-      if (!myProfile) {
-        // An account with no profile document. Every account created before
-        // the database-address fix looks like this (the Auth account was
-        // created, then the profile write 404'd), and an interrupted signup
-        // can leave the same state. Create the profile now, so such accounts
-        // heal themselves on their next login with no manual cleanup.
-        myProfile = await createMissingProfile(user);
-      }
-      if (!myProfile) {
-        // Last-resort safety net: if the profile document still can't be
-        // created (no connection, rules not published...), let the person
-        // into the app on a local-only placeholder rather than stranding a
-        // real account at the login box. Nothing in it is saved anywhere;
-        // enterApp() shows a visible notice while this is the case, and the
-        // browser console has the real error from createMissingProfile().
-        myProfile = { id: user.uid, ...defaultProfileFor(user.email), _unsaved: true };
-      }
-      myProfile = normalizeProfile(myProfile);
-      setAuthStatus(myProfile.displayName || user.email, "ok");
-      showScreen("app");
-      enterApp();
-    } catch (e) {
-      console.error(e);
-      setAuthStatus("Error loading profile", "err");
-      const dbMissing = String(e && e.message).includes("firestore-database-missing");
-      showMsg("authMsg", dbMissing
-        ? "This app can't find its Firestore database. In the Firebase console for this project, create a Firestore database (Native mode) and publish the security rules."
-        : "Couldn't load your profile. Check your connection and refresh.", "err");
-      showScreen("auth");
-    }
+    startSession(user);
   });
+  // The connection came back after the app couldn't start (offline at start-up, a failed profile load):
+  // try again by itself. The person is still signed in as far as the sign-in service is concerned.
+  window.addEventListener("online", () => { if (!sessionUid && auth && auth.currentUser) startSession(auth.currentUser); });
+}
+
+// Opens the app for this person: sign-in token, profile, screens. The sign-in listener, the Continue button and the
+// "back online" handler may all call it; for the same person only one run happens at a time. (The sign-in service
+// only tells the listener when the PERSON changes, so after a failed start nothing else would ever retry.)
+let sessionRun = 0;      // goes up on every sign-out, so a start that was still waiting knows it is out of date
+let sessionUid = null;   // the person whose app is open, or opening, right now
+async function startSession(user) {
+  if (sessionUid === user.uid) return;
+  sessionUid = user.uid;
+  const run = ++sessionRun;
+  const stale = () => run !== sessionRun;                                 // signed out (or switched) while waiting
+  const fail = (status, text) => {                                        // back to the login screen, free to try again
+    sessionUid = null; currentUser = null; myProfile = null;
+    setAuthStatus(status, "err");
+    showMsg("authMsg", text, "err");
+    showScreen("auth");
+  };
+  currentUser = user;
+  try {
+    await authToken();
+  } catch (e) {
+    // No token right now (offline at start-up, say): say so instead of hanging on the splash screen.
+    console.error(e);
+    if (stale()) return;
+    if (isDeadSession(e)) { sessionUid = null; return; }                  // endSession() already took care of the screen
+    fail("Offline", "Couldn't reach the server. Check your connection and refresh.");
+    return;
+  }
+  if (stale()) return;
+
+  try {
+    let profile = await fsGet("users", user.uid);
+    if (stale()) return;
+    if (!profile && signupInFlight) {
+      // The signup handler is writing this profile right now — this is
+      // just the listener winning a race against it. Wait briefly and
+      // look again.
+      await new Promise(r => setTimeout(r, 700));
+      if (stale()) return;
+      profile = await fsGet("users", user.uid);
+      if (stale()) return;
+    }
+    if (!profile) {
+      // An account with no profile document. Every account created before
+      // the database-address fix looks like this (the Auth account was
+      // created, then the profile write 404'd), and an interrupted signup
+      // can leave the same state. Create the profile now, so such accounts
+      // heal themselves on their next login with no manual cleanup.
+      profile = await createMissingProfile(user);
+      if (stale()) return;
+    }
+    if (!profile) {
+      // Last-resort safety net: if the profile document still can't be
+      // created (no connection, rules not published...), let the person
+      // into the app on a local-only placeholder rather than stranding a
+      // real account at the login box. Nothing in it is saved anywhere;
+      // enterApp() shows a visible notice while this is the case, and the
+      // browser console has the real error from createMissingProfile().
+      profile = { id: user.uid, ...defaultProfileFor(user.email), _unsaved: true };
+    }
+    myProfile = normalizeProfile(profile);
+    setAuthStatus(myProfile.displayName || user.email, "ok");
+    showScreen("app");
+    enterApp();
+  } catch (e) {
+    console.error(e);
+    if (stale()) return;
+    const dbMissing = String(e && e.message).includes("firestore-database-missing");
+    fail("Error loading profile", dbMissing
+      ? "This app can't find its Firestore database. In the Firebase console for this project, create a Firestore database (Native mode) and publish the security rules."
+      : "Couldn't load your profile. Check your connection and refresh.");
+  }
 }
 
 // What a brand-new profile document contains. Used by the signup box and by
@@ -563,7 +614,12 @@ function wireAuthScreen() {
     try {
       const authMod = window.__fbAuthMod;
       try {
+        const signedInBefore = auth.currentUser ? auth.currentUser.uid : null;
         await authMod.signInWithEmailAndPassword(auth, email, password);
+        // The sign-in listener opens the app, but it only hears about a CHANGE of person. If this person was already
+        // signed in as far as the sign-in service knows (an earlier start failed, say), it stays silent: open the
+        // app from here. (startSession ignores a person whose app is already opening.)
+        if (auth.currentUser && auth.currentUser.uid === signedInBefore) startSession(auth.currentUser);
         return; // existing account, logged in — done.
       } catch (signInErr) {
         const code = signInErr.code;
@@ -627,6 +683,10 @@ function wireAuthScreen() {
         showMsg("authMsg", "Choose a password with at least 8 characters.", "err");
       } else if (e.code === "auth/invalid-email") {
         showMsg("authMsg", "That doesn't look like a valid email.", "err");
+      } else if (e.code === "auth/too-many-requests") {
+        showMsg("authMsg", "Too many attempts. Wait a few minutes and try again.", "err");
+      } else if (e.code === "auth/user-disabled") {
+        showMsg("authMsg", "This account has been disabled.", "err");
       } else {
         showMsg("authMsg", "Couldn't log you in. Check your connection and try again.", "err");
       }
@@ -634,6 +694,11 @@ function wireAuthScreen() {
       btn.disabled = false;
     }
   };
+
+  // Enter (or the Go key on a phone keyboard) sends the box, the same as tapping Continue.
+  ["loginEmail", "loginPassword"].forEach(id => document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); document.getElementById("loginBtn").click(); }
+  }));
 
   // doLogout() lives in the app-shell section below.
   document.getElementById("logoutBtn").onclick = () => doLogout();
@@ -652,6 +717,11 @@ const PANELS = {
 };
 // Which top-bar link lights up while a tool page is open.
 const NAV_GROUP = { saved: "home", icebreakers: "home", dates: "home", bio: "home", checkin: "safety", scam: "safety" };
+
+// True only for names this app really defines. A plain `PANELS[name]` lookup also answers for built-in object
+// keys such as "constructor" or "toString", so a link ending in #constructor used to blank the screen.
+const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+const isPanel = (name) => typeof name === "string" && own(PANELS, name);
 
 let appEntered = false;
 let currentPanel = "home";
@@ -694,6 +764,32 @@ function resetSessionState() {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 }
 
+// Signing out must leave nothing of the last person on the page. On a shared computer the next person could read it
+// (in the page, or in the developer tools), and a different account logging in on this same page would inherit the
+// lists and the half-typed messages. Every screen is filled in again from the database when someone logs in.
+const PRIVATE_BOXES = ["stack", "matchesList", "pendingList", "admirersList", "savedList", "chatMessages", "icebreakerFor", "icebreakerChips",
+  "forMatchList", "blockedList", "scamResult", "bioResults", "spinResult", "photoGrid", "interestGrid", "bioInterests", "pdBody", "pdActions",
+  "matchAvatars", "profChecklist", "ciPreview"];
+const PRIVATE_TEXT = ["chatWithName", "chatWithMeta", "profName", "profMeta", "accountEmail", "uiTitle", "uiBody", "nudgeText"];
+const PRIVATE_AVATARS = ["chatAvatar", "profAvatar"];
+function clearPrivateScreens() {
+  const byId = (id) => document.getElementById(id);
+  PRIVATE_BOXES.forEach(id => { const el = byId(id); if (el) el.replaceChildren(); });
+  PRIVATE_TEXT.forEach(id => { const el = byId(id); if (el) el.textContent = ""; });
+  PRIVATE_AVATARS.forEach(id => { const el = byId(id); if (el) { el.textContent = ""; el.removeAttribute("style"); el.removeAttribute("aria-label"); } });
+  const app = byId("appScreen");
+  if (app) {
+    app.querySelectorAll("input, textarea").forEach(el => {
+      if (el.type === "checkbox" || el.type === "radio") el.checked = false;
+      else { try { el.value = ""; } catch (_) { /* file boxes refuse some values */ } }
+    });
+    app.querySelectorAll("select").forEach(el => { el.selectedIndex = el.options.length ? 0 : -1; });
+  }
+  const login = byId("loginEmail");
+  if (login) login.value = "";
+  try { renderCheckin(); } catch (_) { /* the check-in preview is rebuilt from the (now empty) boxes */ }
+}
+
 async function doLogout() {
   await window.__fbAuthMod.signOut(auth);
 }
@@ -728,6 +824,7 @@ function enterApp() {
   renderBioInterests();
   renderSavedPill();
   renderPushState();
+  renderBlockedList();
   renderHome();
   const first = panelFromHash() || "home";
   activatePanel(first, { replace: true, initial: true });
@@ -743,20 +840,20 @@ async function loadEverything() {
 
 function panelFromHash() {
   const h = (location.hash || "").replace(/^#/, "");
-  return PANELS[h] ? h : "";
+  return isPanel(h) ? h : "";
 }
 function onHashChange() {
   if (!currentUser || !appEntered) return;
   activatePanel(panelFromHash() || "home");
 }
 function goPanel(name) {
-  if (!PANELS[name]) name = "home";
+  if (!isPanel(name)) name = "home";
   if (panelFromHash() === name) activatePanel(name);
   else location.hash = name;
 }
 
 function activatePanel(name, opts = {}) {
-  if (!PANELS[name]) name = "home";
+  if (!isPanel(name)) name = "home";
   if (currentPanel === "matches" && name !== "matches") closeChatView();
   currentPanel = name;
   document.body.dataset.panel = name;   // lets the stylesheet move things out of the way per screen (toasts on Discover)
@@ -1193,8 +1290,8 @@ function profileCardHTML(u, c, opts = {}) {
   const tags = (u.interests || []).map(i => `<span class="tag${mineSet.has(i) ? " shared" : ""}">${esc(i)}</span>`).join("");
   const study = [u.course, u.year].map(x => String(x || "").trim()).filter(Boolean).join(", ");
   return `
-    <div class="card-photo${first ? "" : " no-photo"}"${first ? ` style="background-image:url('${first}')"` : ""} role="img" aria-label="${esc(first ? "Photo of " + u.displayName : "No photo yet for " + u.displayName)}">
-      ${first ? "" : `<div class="initial" aria-hidden="true">${esc(initialsOf(u.displayName))}</div><div class="no-photo-note">No photo yet</div>`}
+    <div class="card-photo${first ? "" : " no-photo"}"${first ? ` style="background-image:url('${first}')"` : ""}>
+      ${first ? `<span class="sr-only">${esc("Photo of " + u.displayName)}</span>` : `<div class="initial" aria-hidden="true">${esc(initialsOf(u.displayName))}</div><div class="no-photo-note">No photo yet</div>`}
       ${dots}${zones}${likes}${badge}${stamps}
       <div class="photo-grad">
         <h3>${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
@@ -1928,7 +2025,7 @@ async function openChat(user) {
     chatUnsub = fsMod.onSnapshot(q, (snap) => {
       if (token !== chatSession) return;
       snap.docChanges().forEach(ch => {
-        if (ch.type === "added") chatMsgs.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() });
+        if (ch.type === "added") chatMsgs.set(ch.doc.id, messageRecord(ch.doc.id, ch.doc.data()));
       });
       renderChat(first);
       first = false;
@@ -1939,6 +2036,13 @@ async function openChat(user) {
   } catch (e) {
     console.error(e);
   }
+}
+
+// What a chat bubble shows. A message is plain text of at most 1,000 characters when sent from the app; anything
+// else (missing, not text, enormous) comes from someone writing to the database directly.
+function shownMessageText(text) {
+  if (typeof text !== "string") return "";
+  return text.length > 2000 ? text.slice(0, 2000) + "…" : text;
 }
 
 function renderChat(forceBottom) {
@@ -1962,16 +2066,17 @@ function renderChat(forceBottom) {
       lastDay = day;
     }
     const mine = m.from === currentUser.uid;
+    const state = mine ? m._state : undefined;      // "Sending…" and "Not sent" only ever describe my own messages
     const wrap = document.createElement("div");
     wrap.className = "msg-wrap " + (mine ? "mine" : "theirs");
     const b = document.createElement("div");
-    b.className = "bubble " + (mine ? "mine" : "theirs") + (m._state ? " " + m._state : "");
-    b.textContent = m.text;
+    b.className = "bubble " + (mine ? "mine" : "theirs") + (state ? " " + state : "");
+    b.textContent = shownMessageText(m.text);
     const meta = document.createElement("span");
     meta.className = "bubble-meta";
-    meta.textContent = m._state === "pending" ? "Sending…" : m._state === "failed" ? "Not sent. Tap to retry" : clockTime(m.createdAt);
+    meta.textContent = state === "pending" ? "Sending…" : state === "failed" ? "Not sent. Tap to retry" : clockTime(m.createdAt);
     wrap.append(b, meta);
-    if (m._state === "failed") {
+    if (state === "failed") {
       wrap.classList.add("failed");
       wrap.setAttribute("role", "button");
       wrap.tabIndex = 0;
@@ -2006,9 +2111,25 @@ async function sendChatMessage(text, existingId) {
     sendPushToUser(partner.id, { title: myProfile.displayName, body: text });
   } catch (e) {
     if (e.status === 409) delete msg._state; // it had already gone through
+    else if (e.status === 403 && await matchHasEnded(partner.id)) {
+      // The database only takes a message while both likes exist. They unmatched (or blocked me) after this chat
+      // opened. Retrying can never work, so say so and close the chat instead of leaving "Not sent. Tap to retry".
+      if (currentChatPartner && currentChatPartner.id === partner.id) {
+        chatMsgs.delete(id);
+        closeChatView();
+        toast(`This match has ended, so your message to ${firstName(partner)} wasn't sent.`, "err");
+        try { await loadMatches(); renderHome(); } catch (err) { console.error(err); }
+      }
+      return;
+    }
     else { console.error(e); msg._state = "failed"; }
   }
   if (currentChatPartner && currentChatPartner.id === partner.id) renderChat(true);
+}
+// Look again at who liked whom. True only when that answer was received and this person is no longer a match.
+async function matchHasEnded(otherId) {
+  const ok = await refreshSocial(true);
+  return ok && !matchIds().includes(otherId);
 }
 function retrySend(id) {
   const m = chatMsgs.get(id);
@@ -2037,7 +2158,8 @@ function toggleIcebreakerTray() {
 // Every message I've sent to someone, with the real document id so each can
 // be deleted on unmatch (Firestore deletes are by id only).
 async function fetchDirectionWithIds(fromId, toId) {
-  return fsQuery("messages", { where: andFilter([fieldFilter("from", "EQUAL", fromId), fieldFilter("to", "EQUAL", toId)]) });
+  const rows = await fsQuery("messages", { where: andFilter([fieldFilter("from", "EQUAL", fromId), fieldFilter("to", "EQUAL", toId)]) });
+  return rows.map(m => messageRecord(m.id, m));
 }
 
 async function unmatchUser(otherId) {
@@ -2403,7 +2525,7 @@ let icebreakerCat = "easy";
 // about theirs, then topped up from the general lists.
 function openersFor(u, n) {
   const mine = new Set(myProfile.interests || []);
-  const theirs = (u.interests || []).filter(t => INTEREST_OPENERS[t]);
+  const theirs = (u.interests || []).filter(t => typeof t === "string" && own(INTEREST_OPENERS, t));
   const picks = [];
   theirs.filter(t => mine.has(t)).slice(0, 2).forEach(t => picks.push(INTEREST_OPENERS[t]));
   if (picks.length < 2) theirs.filter(t => !mine.has(t)).slice(0, 2 - picks.length).forEach(t => picks.push(INTEREST_OPENERS[t]));
@@ -2741,7 +2863,9 @@ const SCAM_RULES = [
       new RegExp(`\\b(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?(?:send|lend|loan|give)\\b[^.!?\\n]{0,25}\\b${MONEY_WORDS}\\b`),
       /\btuma\s+(?:pesa|mpesa|m-pesa|airtime|fare)\b/, /\bnitumie\b/,
       /\b(?:m-?pesa|mpesa)\s+(?:me|us)\b/,
-      /\b(?:till|paybill)\s*(?:number|no\.?|#)?\s*(?:is|:)?\s*\d{4,}/,
+      // Each optional part carries its own trailing spaces. Three bare "\s*" in a row made the check take seconds
+      // on "till" followed by a long run of spaces.
+      /\b(?:till|paybill)\s*(?:(?:number|no\.?|#)\s*)?(?:(?:is|:)\s*)?\d{4,}/,
       /\b(?:pay|send)\b[^.!?\n]{0,25}\b(?:till|paybill)\b[^.!?\n]{0,15}\d{4,}/,
       /\b(?:ksh|kes)\.?\s?\d{2,}[^.!?\n]{0,25}\b(?:send|lend|loan|pay)\b/,
       /\bsend\s+(?:me\s+)?(?:ksh|kes)\.?\s?\d/,
@@ -2781,7 +2905,7 @@ const SCAM_RULES = [
   { id: "link", level: "warn", weight: 2,
     title: "Contains a link",
     advice: "Don't open links from people you haven't met. They can steal your accounts.",
-    res: [/(?:https?:\/\/|www\.|bit\.ly|tinyurl|t\.me\/|wa\.me\/|\b[a-z0-9-]+\.(?:xyz|top|click|link|site|online)\b)/] },
+    res: [/(?:https?:\/\/|www\.|bit\.ly|tinyurl|t\.me\/|wa\.me\/|\b[a-z0-9-]{1,63}\.(?:xyz|top|click|link|site|online)\b)/] },
   { id: "urgency", level: "warn", weight: 2,
     title: "Pushes you to act fast or keep it secret",
     advice: "Pressure and secrecy are how scammers stop you from thinking or asking a friend.",
@@ -2809,8 +2933,12 @@ const SCAM_RULES = [
     res: [/\b(?:come\s+(?:over\s+)?to\s+my\s+(?:place|house|room|hostel|apartment|flat)|my\s+place|nobody\s+(?:is\s+)?(?:home|there))\b/] }
 ];
 
+// The app itself never sends more than 1,000 characters, so only the start of a message is scanned. Without a
+// cap, someone writing to the database directly could send a megabyte of text that freezes the reader's phone.
+const SCAN_LIMIT = 2000;
 function scamScan(text) {
-  const t = String(text || "").toLowerCase();
+  // A long run of spaces is read as one (a line break stays a line break, because some checks stop at one).
+  const t = String(text == null ? "" : text).slice(0, SCAN_LIMIT).toLowerCase().replace(/\s+/g, (m) => (m.indexOf("\n") >= 0 ? "\n" : " "));
   const hits = SCAM_RULES.filter(r => r.res.some(re => re.test(t)));
   const critical = hits.some(h => h.level === "critical");
   const score = hits.reduce((s, h) => s + h.weight, 0);
@@ -3051,12 +3179,48 @@ function triggerPhotoUpload() {
   $("photoFileInput").click();
 }
 
+// A photo from a phone carries hidden details: where and when it was taken (GPS) and the phone's model, and anyone
+// who opens the picture's address can read them. So the picture is redrawn on a canvas, which keeps only the
+// pixels, and that copy is what gets uploaded. It is also much smaller (about 200 KB instead of several MB), which
+// saves mobile data and the free storage. If the picture can't be redrawn, nothing is uploaded.
+const PHOTO_MAX_SIDE = 1280, PHOTO_QUALITY = 0.85, PHOTO_MAX_INPUT = 15 * 1024 * 1024;
+function photoProblem(text) { return Object.assign(new Error(text), { userMessage: text }); }
+function decodePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(photoProblem("This photo couldn't be read. Try a different one.")); };
+    img.src = url;
+  });
+}
+async function preparePhoto(file) {
+  const img = await decodePhoto(file);   // the browser turns the picture the right way up as it decodes it
+  const w0 = img.naturalWidth, h0 = img.naturalHeight;
+  if (!w0 || !h0) throw photoProblem("This photo couldn't be read. Try a different one.");
+  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  try {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw photoProblem("This photo couldn't be prepared. Try a different one.");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);   // JPEG has no see-through, so transparent areas turn white
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise((resolve) => { try { canvas.toBlob(resolve, "image/jpeg", PHOTO_QUALITY); } catch (_) { resolve(null); } });
+    if (!blob || !blob.size) throw photoProblem("This photo couldn't be prepared. Try a different one.");
+    return blob;
+  } finally {
+    canvas.width = canvas.height = 0;   // give the memory back (phones are strict about it)
+  }
+}
+
 async function uploadToCloudinary(file) {
   if (!cloudinaryConfig.cloudName || cloudinaryConfig.cloudName.startsWith("PASTE_")) {
-    throw new Error("Cloudinary isn't configured yet — edit firebase-init.js with your cloud name.");
+    throw photoProblem("Photo uploads aren't set up yet.");
   }
   const form = new FormData();
-  form.append("file", file);
+  form.append("file", file, "photo.jpg");
   form.append("upload_preset", cloudinaryConfig.uploadPreset);
   const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/image/upload`, {
     method: "POST", body: form
@@ -3075,12 +3239,13 @@ function wirePhotoUpload() {
     // Validate type/size BEFORE anything else.
     const okTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!okTypes.includes(file.type)) return toast("Please choose a JPEG, PNG or WebP image.", "err");
-    if (file.size > 5 * 1024 * 1024) return toast("Image must be under 5MB.", "err");
+    if (file.size > PHOTO_MAX_INPUT) return toast("That photo is too big. Choose one under 15MB.", "err");
 
     const grid = $("photoGrid");
     grid.classList.add("busy");
     try {
-      const url = await uploadToCloudinary(file);
+      const pixelsOnly = await preparePhoto(file);        // no location, no phone details
+      const url = await uploadToCloudinary(pixelsOnly);
       if (!safePhotoUrl(url)) throw new Error("Unexpected photo address from the upload service");
       const photos = [...(myProfile.photos || []), url];
       await fsSet("users", currentUser.uid, { photos });
@@ -3090,7 +3255,7 @@ function wirePhotoUpload() {
       toast("Photo added.");
     } catch (err) {
       console.error(err);
-      toast(err.message && !/^fsSet/.test(err.message) ? err.message : "Upload failed. Please try again.", "err");
+      toast(err && err.userMessage ? err.userMessage : "Upload failed. Please try again.", "err");
     } finally {
       grid.classList.remove("busy");
     }
@@ -3243,6 +3408,14 @@ wireInterests();
 initFirebase().catch(e => {
   console.error(e);
   document.body.classList.remove("booting");
-  setAuthStatus("Setup error", "err");
-  showMsg("authMsg", "Firebase isn't configured yet. Edit firebase-init.js with your project's real config values.", "err");
+  // The usual cause is the phone: the sign-in service files come from Google's servers, and on a weak or blocked
+  // connection they don't arrive. Only a placeholder config means the app really isn't set up.
+  const placeholder = !firebaseConfig || !firebaseConfig.apiKey || /^PASTE_/.test(String(firebaseConfig.apiKey));
+  if (placeholder) {
+    setAuthStatus("Setup error", "err");
+    showMsg("authMsg", "Firebase isn't configured yet. Edit firebase-init.js with your project's real config values.", "err");
+  } else {
+    setAuthStatus("Offline", "err");
+    showMsg("authMsg", "Couldn't load the sign-in service. Check your connection, then reload this page.", "err");
+  }
 });
