@@ -1,0 +1,2077 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090909">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="TUMingle: meet, match and chat with students at the Technical University of Mombasa, with safety tools built in.">
+<title>TUMingle (preview)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23090909'/%3E%3Cpath d='M24 14c-6-7-17-3-17 5 0 8 11 14 17 18 6-4 17-10 17-18 0-8-11-12-17-5z' fill='%23FFD447'/%3E%3C/svg%3E">
+<link rel="preload" href="tinos-regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="tinos-bold.woff2" as="font" type="font/woff2" crossorigin>
+<script data-tm="boot">try{if(localStorage.getItem("tm_in")==="1")document.documentElement.className+=" returning"}catch(e){}</script>
+<style>
+
+  @font-face{font-family:"Tinos"; font-style:normal; font-weight:400; font-display:swap; src:url("tinos-regular.woff2") format("woff2");}
+  @font-face{font-family:"Tinos"; font-style:normal; font-weight:700; font-display:swap; src:url("tinos-bold.woff2") format("woff2");}
+  @font-face{font-family:"Tinos"; font-style:italic; font-weight:400; font-display:swap; src:url("tinos-italic.woff2") format("woff2");}
+
+  :root{
+    --cream:#F6F3EC; --ink:#1C1A14; --ink-dim:#5B5748;
+    --brass:#8A6D1E; --brass-line:#C9A227; --green:#3F5B3B; --green-dim:#6C8368;
+    --line:#D8D2C0; --card:#FFFFFF; --danger:#8B3A2E; --danger-bg:#F7E9E4;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:"Tinos","Times New Roman",Times,serif; background:var(--cream); color:var(--ink);
+    min-height:100vh;
+  }
+  a{color:inherit;}
+  button{font-family:inherit;}
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid var(--line); background:var(--cream);
+    position:sticky; top:0; z-index:40;
+  }
+  .brand{font-weight:700; font-size:1.15rem; letter-spacing:-.01em;}
+  .brand span{color:var(--brass);}
+  .topbar-right{display:flex; align-items:center; gap:14px; font-size:.82rem;}
+  .status-pill{
+    border:1px solid var(--line); border-radius:3px; padding:3px 9px; color:var(--ink-dim); font-size:.72rem;
+  }
+  .status-pill.ok{border-color:var(--green-dim); color:var(--green);}
+  .status-pill.err{border-color:var(--danger); color:var(--danger); background:var(--danger-bg);}
+  .btn{
+    border:1px solid var(--ink); background:var(--ink); color:var(--cream);
+    padding:9px 16px; font-size:.82rem; cursor:pointer; border-radius:3px;
+  }
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn.secondary{background:transparent; color:var(--ink); border-color:var(--line);}
+  .btn.danger{background:var(--danger); border-color:var(--danger); color:#fff;}
+  .btn.small{padding:6px 11px; font-size:.74rem;}
+  .wrap{max-width:720px; margin:0 auto; padding:24px 18px 80px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:5px;}
+  .field input, .field select, .field textarea{
+    width:100%; padding:10px 11px; border:1px solid var(--line); border-radius:3px;
+    font-family:inherit; font-size:.92rem; background:#fff; color:var(--ink);
+  }
+  .field textarea{resize:vertical; min-height:70px;}
+  .field small{display:block; margin-top:4px; color:var(--ink-dim); font-size:.74rem;}
+  .msg{padding:10px 12px; border-radius:3px; font-size:.82rem; margin-bottom:14px; display:none;}
+  .msg.show{display:block;}
+  .msg.err{background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger);}
+  .msg.ok{background:#E8EFE6; color:var(--green); border:1px solid var(--green-dim);}
+  .msg.info{background:#F1ECD9; color:var(--brass); border:1px solid var(--brass-line);}
+  .row{display:flex; gap:10px;}
+  .row > *{flex:1;}
+  .center{text-align:center;}
+  .hint{font-size:.78rem; color:var(--ink-dim); margin-top:10px; line-height:1.5;}
+  .link-btn{background:none; border:none; color:var(--brass); text-decoration:underline; cursor:pointer; font-size:.82rem; padding:0;}
+
+  /* No login flash for returning users (app.js removes .booting once auth state is known) */
+  body.booting #authScreen{visibility:hidden; animation:unboot 0s 3.5s forwards;}
+
+  /* ========================================================================
+     AUTH SCREEN — scoped restyle only (yellow/black, matches a reference
+     the user supplied). Deliberately does NOT touch --cream/--ink/--brass
+     etc above, which the rest of the app (Discover/Matches/Profile) still
+     uses — this block only applies inside #authScreen, so the signed-in
+     app keeps its current look until/unless asked to restyle that too.
+     ======================================================================== */
+  #authScreen{
+    --tum-yellow:#F6C400; --tum-yellow-dark:#E0B000; --tum-ink:#17140D;
+    --tum-ink-dim:#5B5745; --tum-cream:#FFFBEF; --tum-line:#2A2512;
+  }
+  #authScreen{
+    margin:-1px 0 0; /* sit flush under the sticky topbar, no gap */
+  }
+  #authScreen .auth-hero{
+    background:var(--tum-yellow);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,.35) 0, transparent 40%),
+      radial-gradient(circle at 85% 75%, rgba(0,0,0,.06) 0, transparent 45%);
+    padding:48px 20px 60px;
+    text-align:center;
+    position:relative;
+    overflow:hidden;
+  }
+  #authScreen .auth-hero::before, #authScreen .auth-hero::after{
+    content:""; position:absolute; border-radius:50%; background:rgba(0,0,0,.05);
+  }
+  #authScreen .auth-hero::before{ width:180px; height:180px; top:-60px; left:-60px; }
+  #authScreen .auth-hero::after{ width:240px; height:240px; bottom:-90px; right:-70px; }
+  #authScreen .auth-mark{
+    display:inline-flex; align-items:center; justify-content:center; gap:10px;
+    margin-bottom:18px; position:relative; z-index:1;
+  }
+  #authScreen .auth-mark svg{ width:40px; height:40px; flex-shrink:0; }
+  #authScreen .auth-mark span{
+    font-family:Georgia,"Times New Roman",serif; font-weight:700; font-size:1.7rem;
+    color:var(--tum-ink); letter-spacing:-.01em;
+  }
+  #authScreen .auth-mark span em{ font-style:normal; color:#fff; -webkit-text-stroke:1.5px var(--tum-ink); }
+  #authScreen .auth-tagline{
+    font-size:1.05rem; color:var(--tum-ink); font-weight:600; margin:0 0 6px;
+    position:relative; z-index:1;
+  }
+  #authScreen .auth-sub{
+    font-size:.86rem; color:var(--tum-ink); opacity:.75; max-width:420px; margin:0 auto;
+    position:relative; z-index:1; line-height:1.5;
+  }
+  #authScreen .auth-badges{
+    display:flex; gap:18px; justify-content:center; margin-top:18px; flex-wrap:wrap;
+    position:relative; z-index:1;
+  }
+  #authScreen .auth-badge{
+    display:flex; align-items:center; gap:6px; font-size:.76rem; font-weight:600; color:var(--tum-ink);
+  }
+  #authScreen .auth-badge svg{ width:15px; height:15px; }
+
+  #authScreen .auth-body{ padding:0 18px 50px; background:var(--tum-cream); }
+  #authScreen .auth-card{
+    background:#fff; border:1px solid #ECE3C2; border-radius:14px;
+    padding:28px 26px; max-width:400px; margin:-30px auto 0;
+    box-shadow:0 12px 30px rgba(23,20,13,.12); position:relative; z-index:2;
+  }
+  #authScreen .auth-card h2{
+    margin:0 0 4px; font-size:1.25rem; color:var(--tum-ink); font-family:Georgia,"Times New Roman",serif;
+  }
+  #authScreen .auth-card .auth-card-sub{
+    font-size:.82rem; color:var(--tum-ink-dim); margin:0 0 20px;
+  }
+  #authScreen .field label{ color:var(--tum-ink-dim); }
+  #authScreen .field input{
+    border:1.5px solid #E7DEB8; border-radius:9px; padding:11px 13px;
+  }
+  #authScreen .field input:focus{
+    outline:none; border-color:var(--tum-yellow-dark);
+    box-shadow:0 0 0 3px rgba(246,196,0,.25);
+  }
+  #authScreen .btn.auth-submit{
+    width:100%; background:var(--tum-ink); color:var(--tum-yellow);
+    border:none; border-radius:999px; padding:13px 16px; font-weight:700;
+    font-size:.94rem; letter-spacing:.01em; cursor:pointer; margin-top:4px;
+    transition:transform .08s ease, opacity .15s ease;
+  }
+  #authScreen .btn.auth-submit:hover{ opacity:.92; }
+  #authScreen .btn.auth-submit:active{ transform:scale(.98); }
+  #authScreen .btn.auth-submit:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+  #authScreen .auth-card .hint{
+    color:var(--tum-ink-dim); font-size:.78rem; text-align:center; margin-top:14px; line-height:1.5;
+  }
+  #authScreen .msg{ border-radius:9px; }
+
+  @media (max-width:480px){
+    #authScreen .auth-hero{ padding:36px 16px 56px; }
+    #authScreen .auth-mark span{ font-size:1.4rem; }
+    #authScreen .auth-mark svg{ width:32px; height:32px; }
+  }
+
+/* =====================================================================
+   SIGNED-IN THEME: dark gold. Rich black pages, charcoal surfaces,
+   golden yellow (#FFD447) as THE signature colour, warm off-white text,
+   Tinos (a free Times New Roman lookalike) then Times New Roman.
+   Names that the login screen also uses (.btn, .field, .msg, .hint,
+   .link-btn, .topbar, .brand, .status-pill) are scoped to body.signed-in
+   so the login screen is untouched.
+
+   Palette (the only colours used here):
+     gold #FFD447   amber #F5B700   champagne #FFE8A3   orange #FF8A3D
+     charcoal #141414   black #090909   off-white #FFF9ED   muted #B9B5AD
+     violet #9B87F5 (small accents only)
+   Text on gold is always charcoal (#141414); gold text sits on black or
+   charcoal only. Contrast is checked by the test suite (axe) and by hand
+   in the delivery notes.
+   ===================================================================== */
+[hidden]{display:none !important;}
+
+body.signed-in{
+  color-scheme:dark;
+  --t-bg:#090909; --t-bg-2:#0F0F0F;
+  --t-surface:#141414; --t-surface-2:#1B1B1A; --t-surface-3:#262522;
+  --t-gold:#FFD447; --t-gold-hi:#FFE17A; --t-gold-lo:#F5B700; --t-champagne:#FFE8A3; --t-orange:#FF8A3D; --t-violet:#9B87F5;
+  --t-on-gold:#141414;
+  --t-line:#2C2A26; --t-line-2:#1F1E1B; --t-edge:#46433B; --t-input:#8E8A80;
+  --t-ink:#FFF9ED; --t-ink-2:#E8E2D4; --t-mute:#B9B5AD;
+  --t-ok:#5FD39A; --t-ok-ink:#A6EBC6; --t-ok-bg:#112419; --t-ok-line:#25563B;
+  --t-bad:#FF6B5E; --t-bad-ink:#FFB4AB; --t-bad-bg:#2A1210; --t-bad-line:#6E2B25; --t-bad-solid:#C2352B;
+  --t-warn-ink:#FFE8A3; --t-warn-bg:#2A2208; --t-warn-line:#5E4B12;
+  --t-gold-line:rgba(255,212,71,.34); --t-gold-wash:rgba(255,212,71,.1);
+  --t-shadow:0 1px 2px rgba(0,0,0,.55), 0 10px 28px rgba(0,0,0,.45);
+  --t-lift:0 2px 6px rgba(0,0,0,.55), 0 24px 56px rgba(0,0,0,.62);
+  --t-glow:0 0 0 1px rgba(255,212,71,.4), 0 0 30px rgba(255,212,71,.2);
+  background:var(--t-bg); color:var(--t-ink); font-size:1.0625rem; line-height:1.5;
+}
+html:has(body.signed-in){color-scheme:dark;}
+/* Faint grid + soft golden glow, fading out down the page.
+   This sits at z-index:-1, so it only shows if the page colour comes from body (and
+   propagates to the canvas). Do not give <html> its own background or it hides this. */
+body.signed-in::before{
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(64% 42% at 50% 6%, rgba(255,212,71,.16), rgba(255,212,71,0) 72%),
+    linear-gradient(rgba(255,249,237,.035) 1px, transparent 1px) 0 0/44px 44px,
+    linear-gradient(90deg, rgba(255,249,237,.035) 1px, transparent 1px) 0 0/44px 44px;
+  -webkit-mask-image:linear-gradient(#000 0, #000 34%, transparent 86%);
+          mask-image:linear-gradient(#000 0, #000 34%, transparent 86%);
+}
+body.signed-in .wrap{display:none;}
+/* Resets use :where() on BOTH parts so they have zero specificity and never beat a
+   single-class rule such as .sec-title or .card-body > * + * */
+:where(body.signed-in) :where(h1,h2,h3,p,ul,ol,figure){margin:0;}
+:where(body.signed-in) :where(h1,h2,h3){line-height:1.15; letter-spacing:-.005em;}
+:where(body.signed-in) :where(button,input,select,textarea){font:inherit;}
+:where(body.signed-in) :where(ul,ol){padding:0; list-style:none;}
+
+/* Keyboard focus: a gold ring everywhere (every surface in this theme is dark) */
+body.signed-in :focus-visible{outline:3px solid var(--t-gold); outline-offset:2px;}
+body.signed-in .photo-zone:focus-visible{outline-offset:-4px;}
+body.signed-in h1[tabindex="-1"]:focus{outline:none;}
+
+/* ---------- Top bar ---------- */
+.brand{text-decoration:none;}
+.brand-mark{display:none;}
+body.signed-in .topbar{
+  display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"brand right" "nav nav";
+  align-items:center; gap:4px 10px;
+  padding:calc(10px + env(safe-area-inset-top, 0px)) 14px 0;
+  background:#0D0D0D; color:var(--t-ink); border-bottom:1px solid rgba(255,212,71,.2);
+}
+/* "TUM" is a bare text node and "ingle" a span; with a flex gap they would split apart,
+   so the logo mark carries its own right margin instead. */
+body.signed-in .brand{
+  grid-area:brand; display:inline-flex; align-items:center; min-width:0;
+  color:var(--t-ink); font-size:1.35rem; letter-spacing:-.01em;
+}
+body.signed-in .brand span{color:var(--t-gold);}
+body.signed-in .brand-mark{display:block; width:32px; height:32px; flex:0 0 auto; margin-right:9px;}
+body.signed-in .topbar-right{grid-area:right; display:flex; align-items:center; gap:8px; font-size:1rem;}
+body.signed-in .status-pill,
+body.signed-in .status-pill.ok{
+  display:none; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  border:1px solid var(--t-edge); border-radius:999px; padding:5px 12px;
+  background:transparent; color:var(--t-mute); font-size:.9rem;
+}
+.saved-pill{display:none;}
+body.signed-in .saved-pill{
+  display:inline-flex; align-items:center; gap:7px; min-height:40px; padding:0 8px 0 13px;
+  border-radius:999px; background:var(--t-surface-2); color:var(--t-ink); cursor:pointer;
+  border:1px solid rgba(255,212,71,.6);
+  box-shadow:0 0 0 1px rgba(255,212,71,.1), 0 0 16px rgba(255,212,71,.2);
+  font-weight:700; font-size:.98rem;
+}
+body.signed-in .saved-pill b{
+  display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; padding:0 7px;
+  border-radius:12px; background:var(--t-gold); color:var(--t-on-gold); font-size:.85rem;
+}
+body.signed-in #logoutBtn{
+  min-height:40px; padding:0 16px; border:0; border-radius:999px;
+  background:var(--t-gold); color:var(--t-on-gold); font-weight:700; font-size:.98rem;
+}
+body.signed-in #logoutBtn:hover{background:var(--t-gold-hi);}
+
+#mainNav{display:none;}
+body.signed-in #mainNav{
+  grid-area:nav; display:flex; gap:4px; overflow-x:auto; scrollbar-width:none;
+  margin:0 -14px; padding:2px 14px 10px;
+  -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 26px), transparent 100%);
+          mask-image:linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 26px), transparent 100%);
+}
+body.signed-in #mainNav::-webkit-scrollbar{display:none;}
+#mainNav .tab{
+  position:relative; display:inline-flex; align-items:center; gap:7px; flex:0 0 auto; white-space:nowrap;
+  min-height:42px; padding:0 14px; border-radius:999px; border:1px solid transparent;
+  color:var(--t-mute); font-weight:700; font-size:1rem; text-decoration:none; cursor:pointer;
+}
+#mainNav .tab:hover{color:var(--t-ink); background:rgba(255,249,237,.07);}
+#mainNav .tab.active{color:var(--t-gold); background:var(--t-gold-wash); border-color:var(--t-gold-line);}
+.nav-badge{
+  display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 6px;
+  border-radius:10px; background:var(--t-gold); color:var(--t-on-gold); font-size:.78rem; font-weight:700;
+}
+
+/* ---------- Page frame ---------- */
+#appScreen{max-width:1120px; margin:0 auto; padding:18px 16px calc(120px + env(safe-area-inset-bottom, 0px));}
+#appScreen .panel{display:none;}
+#appScreen .panel.active{display:block;}
+.panel.narrow{max-width:680px; margin-inline:auto;}
+.panel-head{margin:6px 0 18px;}
+.panel-head h1{font-size:clamp(1.75rem, 6vw, 2.4rem); margin-bottom:6px;}
+.panel-head p{color:var(--t-mute); font-size:1.05rem; max-width:34em;}
+.sec-title{font-size:1.3rem; margin:28px 0 12px;}
+.muted{color:var(--t-mute);}
+.fine{font-size:.92rem; color:var(--t-mute); line-height:1.45;}
+.surface{
+  background:var(--t-surface); border:1px solid var(--t-line); border-radius:20px;
+  box-shadow:var(--t-shadow), inset 0 1px 0 rgba(255,249,237,.04);
+  padding:18px 18px 20px; margin-bottom:14px;
+}
+.surface > h2{font-size:1.25rem; margin-bottom:10px;}
+.surface > .fine{margin-top:10px;}
+.actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;}
+
+/* ---------- Buttons, fields, chips ---------- */
+body.signed-in .btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  min-height:48px; padding:0 22px; border-radius:999px;
+  border:1.5px solid var(--t-ink); background:var(--t-ink); color:var(--t-on-gold);
+  font-weight:700; font-size:1.02rem; line-height:1.1; text-decoration:none; cursor:pointer;
+  transition:background-color .15s, border-color .15s, transform .08s;
+  -webkit-tap-highlight-color:transparent;
+}
+body.signed-in .btn:active{transform:scale(.98);}
+body.signed-in .btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
+body.signed-in .btn.small{min-height:44px; padding:0 18px; font-size:.97rem;}
+body.signed-in .btn.btn-gold{background:var(--t-gold); border-color:var(--t-gold); color:var(--t-on-gold);}
+body.signed-in .btn.btn-gold:hover{background:var(--t-gold-hi); border-color:var(--t-gold-hi);}
+body.signed-in .btn.ghost{background:transparent; border-color:var(--t-edge); color:var(--t-ink);}
+body.signed-in .btn.ghost:hover{background:rgba(255,249,237,.06); border-color:var(--t-gold);}
+body.signed-in .btn.danger{background:var(--t-bad-solid); border-color:var(--t-bad-solid); color:#fff;}
+body.signed-in .btn.ghost.warn{color:var(--t-bad-ink); border-color:var(--t-bad-line);}
+body.signed-in .btn.ghost.warn:hover{background:rgba(255,107,94,.1); border-color:var(--t-bad);}
+body.signed-in .btn.danger:hover{background:#A52B22; border-color:#A52B22;}
+body.signed-in .link-btn{
+  background:none; border:0; padding:6px 4px; min-height:36px; color:var(--t-gold);
+  font-weight:700; font-size:1rem; text-decoration:underline; text-underline-offset:3px; cursor:pointer;
+}
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+  width:46px; height:46px; border-radius:50%; border:1.5px solid var(--t-edge, #C4C0AD); background:var(--t-surface-2, #fff); color:var(--t-ink, #0B1020);
+  font-size:1.3rem; line-height:1; cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.icon-btn:hover{border-color:var(--t-gold, #0B1020);}
+.icon-btn.small{width:40px; height:40px;}
+.icon-btn svg{width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round;}
+
+body.signed-in .field{margin-bottom:16px;}
+body.signed-in .field > label, body.signed-in .field-label{
+  display:block; margin-bottom:6px; font-size:1rem; font-weight:700; letter-spacing:0; text-transform:none; color:var(--t-ink);
+}
+body.signed-in .field input, body.signed-in .field select, body.signed-in .field textarea{
+  width:100%; min-height:48px; padding:10px 14px; border:1.5px solid var(--t-input); border-radius:14px;
+  background:var(--t-surface-2); color:var(--t-ink); font-size:1rem; line-height:1.35;
+}
+body.signed-in .field textarea{min-height:110px; resize:vertical;}
+body.signed-in .field input::placeholder, body.signed-in .field textarea::placeholder{color:#9A968C;}
+body.signed-in .field select{
+  appearance:none; -webkit-appearance:none; padding-right:42px;
+  background:var(--t-surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFE8A3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center/16px;
+}
+body.signed-in .field input:focus, body.signed-in .field select:focus, body.signed-in .field textarea:focus{
+  outline:3px solid rgba(255,212,71,.55); outline-offset:0; border-color:var(--t-gold);
+}
+body.signed-in .field small, .field-count{display:block; margin-top:5px; font-size:.88rem; color:var(--t-mute, #5A6683);}
+.field-count{text-align:right;}
+body.signed-in .row{gap:12px;}
+@media (max-width:459px){ body.signed-in .row{flex-direction:column; gap:0;} }
+
+body.signed-in .msg{border-radius:14px; padding:12px 14px; font-size:1rem; line-height:1.4; margin:0 0 14px;}
+body.signed-in .msg.err{background:var(--t-bad-bg); color:var(--t-bad-ink); border:1px solid var(--t-bad-line);}
+body.signed-in .msg.ok{background:var(--t-ok-bg); color:var(--t-ok-ink); border:1px solid var(--t-ok-line);}
+body.signed-in .msg.info{background:var(--t-warn-bg); color:var(--t-warn-ink); border:1px solid var(--t-warn-line);}
+
+.chips{display:flex; flex-wrap:wrap; gap:8px;}
+.chip, .interest-chip{
+  min-height:42px; padding:0 16px; border-radius:999px; border:1.5px solid var(--t-edge);
+  background:var(--t-surface-2); color:var(--t-ink-2); font-size:1rem; cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.chip:hover, .interest-chip:hover{border-color:var(--t-gold);}
+.chip.sel, .interest-chip.sel{background:var(--t-gold); border-color:var(--t-gold); color:var(--t-on-gold); font-weight:700;}
+.interest-grid{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
+.tag-row{display:flex; flex-wrap:wrap; gap:6px;}
+.tag{
+  display:inline-block; padding:3px 11px; border-radius:999px; border:1px solid var(--t-line); background:var(--t-surface-3);
+  color:var(--t-ink-2); font-size:.88rem;
+}
+.tag.shared{background:var(--t-gold-wash); border-color:var(--t-gold-line); color:var(--t-champagne); font-weight:700;}
+
+.av{
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; width:44px; height:44px;
+  border-radius:50%; background:#2A2823 center/cover no-repeat; color:var(--t-champagne, #5C573F); font-weight:700; font-size:1.02rem;
+  overflow:hidden; user-select:none; -webkit-user-select:none;
+}
+.av.lg{width:58px; height:58px; font-size:1.2rem;}
+.av.xl{width:92px; height:92px; font-size:1.9rem;}
+
+/* ---------- Home ---------- */
+.notice{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;
+  padding:14px 16px; margin-bottom:16px; border-radius:16px;
+  background:var(--t-warn-bg); border:1px solid var(--t-warn-line); color:var(--t-warn-ink); line-height:1.4;
+}
+.hero{text-align:center; padding:22px 0 6px;}
+.hero-badge{
+  display:inline-flex; align-items:center; gap:9px; padding:6px 15px; border-radius:999px;
+  border:1px solid var(--t-gold-line); background:var(--t-gold-wash); color:var(--t-champagne);
+  font-weight:700; font-size:.95rem;
+}
+.hero-badge::before{content:""; width:9px; height:9px; border-radius:50%; background:var(--t-gold); box-shadow:0 0 0 3px rgba(255,212,71,.26);}
+.hero h1{
+  max-width:15em; margin:18px auto 14px; font-size:clamp(2.2rem, 9vw, 3.9rem); line-height:1.04; letter-spacing:-.02em;
+}
+.hero h1{text-wrap:balance;}
+.hero h1 em{font-style:italic; color:var(--t-gold); white-space:nowrap;}
+.hero p{max-width:33em; margin:0 auto; color:var(--t-mute); font-size:clamp(1.08rem, 3.6vw, 1.3rem); line-height:1.45;}
+
+.nudge{
+  display:flex; flex-direction:column; gap:14px; max-width:560px; margin:22px auto 0; padding:16px;
+  background:var(--t-surface); border:1px solid var(--t-line); border-radius:18px; box-shadow:var(--t-shadow);
+}
+.nudge-main{flex:1 1 auto; min-width:0;}
+.nudge-title{font-size:1.08rem; margin-bottom:8px;}
+.nudge-bar{height:10px; border-radius:5px; background:var(--t-line); overflow:hidden;}
+.nudge-bar i{display:block; height:100%; width:0; border-radius:5px; background:var(--t-gold); transition:width .4s ease;}
+.nudge-text{margin-top:8px; color:var(--t-mute); font-size:1rem; line-height:1.4;}
+.nudge .btn{align-self:stretch;}
+@media (min-width:480px){
+  .nudge{flex-direction:row; align-items:center; gap:18px;}
+  .nudge .btn{align-self:center; flex:0 0 auto;}
+}
+
+.tools{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; margin:28px 0 22px;}
+@media (min-width:700px){ .tools{grid-template-columns:repeat(5, minmax(0,1fr)); gap:14px;} }
+.tools > li{display:flex;}   /* every card in a row stretches to the tallest one */
+.tool{
+  position:relative; display:flex; flex:1 1 auto; min-width:0; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px;
+  min-height:136px; padding:20px 12px 16px; text-align:center; text-decoration:none; color:var(--t-ink);
+  background:var(--t-surface); border:1px solid var(--t-line); border-radius:18px; box-shadow:var(--t-shadow);
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.tool::after{content:""; position:absolute; top:13px; right:13px; width:7px; height:7px; border-radius:50%; background:var(--t-gold);}
+.tool:hover{transform:translateY(-2px); border-color:rgba(255,212,71,.7); box-shadow:var(--t-shadow), 0 0 26px rgba(255,212,71,.12);}
+.tool .ico{font-size:2rem; line-height:1; margin-bottom:4px;}
+.tool b{font-size:1.12rem; line-height:1.15;}
+.tool small{color:var(--t-mute); font-size:.9rem; line-height:1.3;}
+.tool .count{
+  position:absolute; top:8px; right:8px; z-index:1; min-width:24px; height:24px; padding:0 7px; border-radius:12px;
+  display:inline-flex; align-items:center; justify-content:center; background:var(--t-gold); color:var(--t-on-gold);
+  font-size:.85rem; font-weight:700;
+}
+.stats{
+  display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1px; overflow:hidden;
+  background:var(--t-line); border:1px solid var(--t-line); border-radius:20px; box-shadow:var(--t-shadow);
+}
+@media (min-width:560px){ .stats{grid-template-columns:repeat(4, minmax(0,1fr));} }
+.stat{display:block; padding:18px 10px 16px; text-align:center; text-decoration:none; color:var(--t-ink); background:var(--t-surface);}
+.stat:hover{background:var(--t-surface-3);}
+.stat strong{display:block; font-size:2.3rem; line-height:1.05; color:var(--t-gold); font-variant-numeric:lining-nums tabular-nums;}
+.stat span{display:block; margin-top:4px; color:var(--t-mute); font-size:.98rem;}
+.invite-row{display:flex; justify-content:center; margin-top:22px;}
+
+/* ---------- Discover ---------- */
+.stack{
+  position:relative; width:100%; max-width:420px; margin:4px auto 0;
+  height:clamp(340px, calc(100vh - 378px), 620px);
+  height:clamp(340px, calc(100dvh - 378px), 620px);
+}
+.stack.empty{height:auto; max-width:none;}
+.swipe-card{
+  position:absolute; inset:0; display:flex; flex-direction:column; overflow:hidden;
+  background:var(--t-surface); border:1px solid rgba(255,212,71,.22); border-radius:26px; box-shadow:var(--t-lift);
+  touch-action:pan-y; user-select:none; -webkit-user-select:none; will-change:transform;
+}
+.swipe-card.top{z-index:2; cursor:grab;}
+.swipe-card.top:active{cursor:grabbing;}
+.swipe-card.behind{z-index:1; transform:translateY(12px) scale(.955); opacity:.88; pointer-events:none; box-shadow:var(--t-shadow);}
+.card-photo{position:relative; flex:1 1 auto; min-height:190px; background:#1E1D1A center/cover no-repeat;}
+.card-photo.no-photo{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  background:radial-gradient(circle at 30% 18%, #4A3E14, #090909 72%);
+}
+.card-photo .initial{font-size:5rem; line-height:1; font-weight:700; color:var(--t-gold);}
+.card-photo .no-photo-note{color:var(--t-mute); font-size:.98rem;}
+.photo-dots{position:absolute; top:10px; left:14px; right:14px; display:flex; gap:5px; z-index:2; pointer-events:none;}
+.photo-dots i{flex:1; height:4px; border-radius:2px; background:rgba(255,249,237,.4);}
+.photo-dots i.on{background:var(--t-ink);}
+.photo-zone{
+  position:absolute; top:0; bottom:110px; width:38%; z-index:1; padding:0; border:0; background:none; cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.photo-zone.prev{left:0;}
+.photo-zone.next{right:0;}
+.badge{
+  position:absolute; z-index:2; padding:5px 12px; border-radius:999px; font-weight:700; font-size:.92rem; pointer-events:none;
+}
+.badge.likes{top:24px; left:14px; background:var(--t-gold); color:var(--t-on-gold);}
+/* Where they stand with me. Top right, opposite "Likes you", so both can show at once. */
+.badge.status{top:24px; right:14px;}
+.badge.status.liked{background:#127A45; color:#fff;}
+.badge.status.saved{background:rgba(9,9,9,.88); color:var(--t-champagne); border:1px solid var(--t-gold-line);}
+.badge.status.passed{background:rgba(255,249,237,.93); color:#4A463E;}
+.badge-slot{display:contents;}
+.badge.compat{
+  right:14px; bottom:16px; background:rgba(9,9,9,.8); color:var(--t-gold); border:1px solid rgba(255,212,71,.55);
+}
+.stamp{
+  position:absolute; top:44px; z-index:3; padding:4px 14px; border:3px solid; border-radius:10px;
+  font-size:1.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; opacity:0; pointer-events:none;
+  background:rgba(9,9,9,.82);
+}
+.stamp.like{left:18px; color:var(--t-ok); border-color:var(--t-ok); transform:rotate(-12deg);}
+.stamp.nope{right:18px; color:var(--t-bad); border-color:var(--t-bad); transform:rotate(12deg);}
+.photo-grad{
+  position:absolute; left:0; right:0; bottom:0; padding:64px 118px 16px 18px; color:var(--t-ink);
+  background:linear-gradient(to top, rgba(9,9,9,.94), rgba(9,9,9,.6) 55%, rgba(9,9,9,0));
+}
+.photo-grad h3{font-size:1.75rem; line-height:1.1; text-shadow:0 1px 8px rgba(0,0,0,.5);}
+.photo-grad p{margin-top:3px; font-size:1.02rem; opacity:.92;}
+.card-body{
+  flex:0 0 auto; max-height:44%; overflow-y:auto; padding:14px 18px 18px; background:var(--t-surface);
+  /* On short screens the text scrolls; fading the last few pixels shows that there is more
+     instead of a hard cut through a line. The bottom padding absorbs the fade when it all fits. */
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 20px), transparent);
+          mask-image:linear-gradient(#000 calc(100% - 20px), transparent);
+}
+.card-body > * + *{margin-top:8px;}
+.card-body .why{color:var(--t-gold); font-weight:700; font-size:1rem;}
+.card-body .study{color:var(--t-mute); font-size:1rem;}
+.card-body .bio{color:var(--t-ink-2); font-size:1.05rem; line-height:1.5;}
+
+.swipe-actions{display:flex; justify-content:center; align-items:flex-start; gap:16px; margin:12px 0 6px;}
+.act{display:flex; flex-direction:column; align-items:center; gap:5px;}
+.act-cap{color:var(--t-mute); font-size:.88rem; font-weight:700; line-height:1;}
+.round{
+  display:inline-flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;
+  border:1.5px solid var(--t-edge); background:var(--t-surface-2); color:var(--t-ink); box-shadow:var(--t-shadow); -webkit-tap-highlight-color:transparent;
+  transition:transform .1s ease, box-shadow .15s ease;
+}
+.round:hover{box-shadow:var(--t-lift);}
+.round:active{transform:scale(.94);}
+.round svg{width:28px; height:28px; fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round;}
+.round.pass{width:60px; height:60px; color:var(--t-bad);}
+.round.save{width:52px; height:52px; margin-top:4px; color:var(--t-ink);}
+.round.save svg{width:23px; height:23px;}
+.round.like{width:68px; height:68px; background:var(--t-gold); border-color:var(--t-gold); color:var(--t-on-gold); box-shadow:var(--t-shadow), 0 0 24px rgba(255,212,71,.28);}
+.round.like svg{width:31px; height:31px; fill:currentColor; stroke:none;}
+/* Pressed: the person on top is already Passed / Saved / Liked */
+.round.pass.on{background:var(--t-bad); border-color:var(--t-bad); color:#1A0806;}
+.round.save.on{background:var(--t-gold); border-color:var(--t-gold); color:var(--t-on-gold);}
+.round.like.on{background:var(--t-bg); border-color:var(--t-gold); color:var(--t-gold);}
+.round.save.on svg{fill:currentColor;}
+.act-cap.on{color:var(--t-ink);}
+.round:disabled{opacity:.4; cursor:default; box-shadow:none;}
+.round:disabled:active{transform:none;}
+
+/* Back + position, between the card and the buttons */
+.deck-bar{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  width:100%; max-width:420px; margin:12px auto 0;
+}
+.deck-back{
+  position:relative; display:inline-flex; align-items:center; gap:2px; height:36px; padding:0 15px 0 8px;
+  border:1.5px solid var(--t-edge); border-radius:999px; background:var(--t-surface-2); color:var(--t-ink);
+  font:inherit; font-size:.98rem; font-weight:700; line-height:1; cursor:pointer; box-shadow:var(--t-shadow);
+  -webkit-tap-highlight-color:transparent;
+}
+.deck-back::after{content:""; position:absolute; inset:-6px -6px;}   /* a 48px-tall touch target around the 36px pill */
+.deck-back:hover{box-shadow:var(--t-lift); border-color:var(--t-gold);}
+.deck-back:active{transform:scale(.96);}
+.deck-back svg{width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round;}
+.deck-back:disabled{opacity:.4; cursor:default; box-shadow:none;}
+.deck-back:disabled:active{transform:none;}
+.deck-count{color:var(--t-mute); font-size:.98rem; font-weight:700; font-variant-numeric:lining-nums tabular-nums;}
+/* Going Back: the card slides in from the left, the way it left */
+@keyframes deckBack{from{transform:translateX(-55%) rotate(-7deg); opacity:0;} to{transform:none; opacity:1;}}
+.swipe-card.enter-back{animation:deckBack .26s ease-out;}
+@media (prefers-reduced-motion:reduce){ .swipe-card.enter-back{animation:none;} }
+/* The card is a fixed-width column centred in a wider panel, so on wide screens the heading centres over it */
+@media (min-width:700px){
+  #discoverPanel .panel-head{text-align:center;}
+  #discoverPanel .panel-head p{margin-inline:auto;}
+}
+.discover-links{display:flex; justify-content:center; flex-wrap:wrap; gap:6px 18px; margin-top:6px;}
+.discover-links .link-btn{font-weight:400; color:var(--t-mute); font-size:.95rem;}
+
+.empty-state{
+  text-align:center; padding:34px 20px 30px; color:var(--t-mute); background:var(--t-surface);
+  border:1px dashed var(--t-edge); border-radius:22px;
+}
+.empty-state.big{border-style:solid; border-color:var(--t-line); box-shadow:var(--t-shadow);}
+.empty-state h3{color:var(--t-ink); font-size:1.4rem; margin-bottom:8px;}
+.empty-state p{max-width:28em; margin-inline:auto; font-size:1.05rem; line-height:1.45;}
+.empty-emoji{font-size:3rem; line-height:1; margin-bottom:12px;}
+.empty-actions{display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-top:18px;}
+.empty-links{display:flex; flex-wrap:wrap; justify-content:center; gap:4px 18px; margin-top:12px;}
+.empty-state p.empty-links{max-width:none;}
+
+/* ---------- Matches, admirers, saved ---------- */
+/* Single-column grids must say minmax(0,1fr): the default track is "auto", which grows
+   to fit nowrap text and pushes rows past the right edge of the screen. */
+.match-list, .person-list, .idea-list, .opener-list, .checklist, .tips, .reasons, .sheet-list{
+  display:grid; grid-template-columns:minmax(0,1fr);
+}
+.match-list, .person-list, .idea-list{gap:12px;}
+.match-row{
+  display:flex; align-items:center; gap:14px; width:100%; padding:12px 14px; text-align:left; cursor:pointer;
+  background:var(--t-surface); border:1px solid var(--t-line); border-radius:20px; box-shadow:var(--t-shadow); color:var(--t-ink);
+  -webkit-tap-highlight-color:transparent;
+}
+.match-row:hover{border-color:rgba(255,212,71,.7);}
+.match-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.match-main .nm{font-weight:700; font-size:1.15rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.match-main .dp{color:var(--t-mute); font-size:.97rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.match-when{flex:0 0 auto; color:var(--t-mute); font-size:.88rem;}
+@media (max-width:459px){ .match-when{display:none;} }
+
+.person{display:grid; grid-template-columns:96px minmax(0,1fr); gap:14px; padding:12px; background:var(--t-surface); border:1px solid var(--t-line); border-radius:20px; box-shadow:var(--t-shadow);}
+.person-photo{
+  display:flex; align-items:center; justify-content:center; width:96px; min-height:124px; padding:0; border:0; border-radius:14px;
+  background:#2A2823 center/cover no-repeat; color:var(--t-champagne); font-size:1.7rem; font-weight:700; cursor:pointer;
+}
+.person-main{min-width:0; display:flex; flex-direction:column; gap:3px;}
+.person-main h3{font-size:1.2rem;}
+.person-main .dept{color:var(--t-mute); font-size:.97rem;}
+.person-main .why{color:var(--t-ink-2); font-size:.97rem; line-height:1.35;}
+.person-main .pct{color:var(--t-gold);}
+.person-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:auto; padding-top:8px;}
+.person-main .when{color:var(--t-mute); font-size:.92rem;}
+.sec-note{color:var(--t-mute); font-size:1rem; line-height:1.4; margin:-4px 0 14px; max-width:36em;}
+body.in-chat #pendingWrap{display:none;}
+#matchUndo{color:var(--t-mute); font-weight:400; font-size:.95rem;}
+
+/* ---------- Chat ---------- */
+#chatView{display:none;}
+#chatView.active{
+  display:flex; flex-direction:column; overflow:hidden; background:var(--t-surface); border:1px solid var(--t-line);
+  border-radius:24px; box-shadow:var(--t-shadow); height:min(740px, calc(100vh - 210px)); height:min(740px, calc(100dvh - 210px));
+}
+.chat-head{display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:1px solid var(--t-line); background:var(--t-surface);}
+.chat-who{flex:1; min-width:0; display:flex; flex-direction:column;}
+.chat-who strong{font-size:1.15rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.chat-who span{color:var(--t-mute); font-size:.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.chat-banner{
+  display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 8px 8px 14px;
+  background:var(--t-warn-bg); color:var(--t-warn-ink); font-size:.95rem; line-height:1.35; border-bottom:1px solid var(--t-warn-line);
+}
+.chat-messages{
+  flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+  display:flex; flex-direction:column; gap:6px; padding:14px 14px 10px; background:var(--t-bg);
+}
+.chat-messages::before{content:""; margin-top:auto;}
+.chat-empty{margin:auto; max-width:22em; text-align:center; padding:20px; color:var(--t-mute); font-size:1.05rem; line-height:1.45;}
+.day-divider{
+  align-self:center; margin:8px 0 4px; padding:2px 12px; border-radius:999px; background:var(--t-surface-3);
+  color:var(--t-mute); font-size:.85rem;
+}
+.msg-wrap{display:flex; flex-direction:column; max-width:84%;}
+.msg-wrap.mine{align-self:flex-end; align-items:flex-end;}
+.msg-wrap.theirs{align-self:flex-start; align-items:flex-start;}
+.bubble{
+  padding:9px 14px; font-size:1.05rem; line-height:1.4; overflow-wrap:anywhere; white-space:pre-wrap;
+}
+.bubble.mine{background:var(--t-gold); color:var(--t-on-gold); border-radius:20px 20px 5px 20px;}
+.bubble.theirs{background:var(--t-surface-3); color:var(--t-ink); border:1px solid var(--t-line); border-radius:20px 20px 20px 5px;}
+.bubble.pending{opacity:.65;}
+.bubble.failed{background:var(--t-bad-bg); color:var(--t-bad-ink); border:1px solid var(--t-bad-line);}
+.msg-wrap.failed{cursor:pointer;}
+.bubble-meta{margin-top:2px; padding:0 4px; font-size:.8rem; color:var(--t-mute);}
+.msg-wrap.failed .bubble-meta{color:var(--t-bad-ink); font-weight:700;}
+.bubble-warn{
+  margin-top:5px; padding:7px 12px; max-width:100%; text-align:left; border-radius:12px; cursor:pointer;
+  background:var(--t-warn-bg); color:var(--t-warn-ink); border:1px solid var(--t-warn-line); font-size:.92rem; line-height:1.3;
+}
+.tray{display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:10px 12px; background:var(--t-surface); border-top:1px solid var(--t-line); max-height:42%; overflow-y:auto;}
+.tray .chips{flex-direction:column; align-items:stretch; width:100%;}
+.tray .chip{height:auto; padding:10px 14px; border-radius:16px; text-align:left; white-space:normal; line-height:1.3;}
+.chat-form{
+  display:flex; align-items:center; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background:var(--t-surface); border-top:1px solid var(--t-line);
+}
+.chat-form input{
+  flex:1; min-width:0; min-height:48px; padding:0 18px; border:1.5px solid var(--t-input); border-radius:24px;
+  background:var(--t-surface-2); color:var(--t-ink); font-size:1.02rem;
+}
+.chat-form input:focus{outline:3px solid rgba(255,212,71,.55); outline-offset:0; border-color:var(--t-gold);}
+.chat-form .btn{padding:0 20px;}
+
+@media (max-width:899px){
+  /* On phones an open chat takes over the whole screen, like a messaging app. */
+  body.in-chat .topbar{display:none;}
+  body.in-chat::before{display:none;}
+  body.in-chat #appScreen{padding:0;}
+  body.in-chat #matchesPanel{max-width:none;}
+  body.in-chat #chatView.active{
+    position:fixed; inset:0; z-index:60; height:auto; border:0; border-radius:0; box-shadow:none;
+    padding-top:env(safe-area-inset-top, 0px);
+  }
+}
+
+/* ---------- Icebreakers, date ideas, bio builder ---------- */
+.spin{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px;}
+.spin h2{font-size:1.25rem;}
+.spin p{color:var(--t-mute);}
+.spin-result{
+  flex:1 1 100%; padding:16px; border-radius:16px; background:var(--t-gold-wash); border:1.5px solid var(--t-gold-line);
+  display:flex; flex-direction:column; align-items:flex-start; gap:12px; font-size:1.12rem; line-height:1.45;
+}
+.spin-result.pop{animation:pop .32s ease-out;}
+@keyframes pop{from{transform:scale(.96); opacity:.2;}to{transform:none; opacity:1;}}
+.opener-list{display:grid; gap:10px;}
+.opener{padding:14px 16px; background:var(--t-surface); border:1px solid var(--t-line); border-radius:18px; box-shadow:var(--t-shadow);}
+.opener p{font-size:1.08rem; line-height:1.45;}
+.opener-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;}
+.for-match-bar{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px;}
+.for-match-bar label{font-weight:700;}
+.for-match-bar select{
+  flex:1 1 180px; min-height:46px; padding:0 40px 0 14px; border:1.5px solid var(--t-input); border-radius:14px; color:var(--t-ink);
+  appearance:none; -webkit-appearance:none;
+  background:var(--t-surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFE8A3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center/16px;
+}
+.idea{padding:16px 18px; background:var(--t-surface); border:1px solid var(--t-line); border-radius:20px; box-shadow:var(--t-shadow);}
+.idea-top{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:6px;}
+.idea-top h3{font-size:1.25rem;}
+.idea-area{flex:0 0 auto; padding:3px 11px; border-radius:999px; background:var(--t-gold-wash); color:var(--t-champagne); font-size:.9rem; font-weight:700; white-space:nowrap;}
+.idea p{color:var(--t-ink-2); margin-bottom:10px; line-height:1.45;}
+.idea-actions, .bio-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px;}
+.bio-toolbar{display:flex; justify-content:flex-end; margin:18px 0 8px;}
+.bio-option{padding:16px 18px; margin-top:12px; background:var(--t-surface); border:1px solid var(--t-line); border-radius:20px; box-shadow:var(--t-shadow);}
+.bio-option h3{font-size:1.05rem; color:var(--t-gold); margin-bottom:6px;}
+.bio-option p{font-size:1.1rem; line-height:1.5;}
+
+/* ---------- Check-in, scam check, safety ---------- */
+.msg-preview{
+  margin:0 0 4px; padding:14px 16px; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.5;
+  background:var(--t-bg); border:1.5px dashed var(--t-edge); border-radius:14px;
+}
+.scam-result{margin-top:14px; padding:18px 18px 16px; border-radius:20px; border:1px solid; border-left-width:7px; background:var(--t-surface);}
+.scam-result .verdict-head{font-size:1.4rem; margin-bottom:6px;}
+.scam-result .verdict-line{font-size:1.08rem; line-height:1.45;}
+.scam-result.high{background:var(--t-bad-bg); border-color:var(--t-bad-line); color:#FFE3DF;}
+.scam-result.high .verdict-head{color:var(--t-bad-ink);}
+.scam-result.careful{background:var(--t-warn-bg); border-color:var(--t-warn-line); color:#FFF1C9;}
+.scam-result.careful .verdict-head{color:var(--t-warn-ink);}
+.scam-result.low{background:var(--t-surface-2); border-color:var(--t-edge); color:var(--t-ink-2);}
+.scam-result.low .verdict-head{color:var(--t-ink);}
+.scam-result.none{background:var(--t-ok-bg); border-color:var(--t-ok-line); color:#D5F5E3;}
+.scam-result.none .verdict-head{color:var(--t-ok-ink);}
+.reasons{display:grid; gap:10px; margin:14px 0;}
+.reasons li{padding:10px 12px; border-radius:12px; background:rgba(255,249,237,.06);}
+.reasons b{display:block; margin-bottom:2px;}
+.reasons span{display:block; line-height:1.4;}
+.scam-result .fine-print{font-size:.92rem; opacity:.9; line-height:1.45;}
+.sos-row{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px;}
+.sos{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-height:84px; padding:10px 6px;
+  text-align:center; text-decoration:none; font-size:.95rem; line-height:1.2;
+  background:var(--t-bad-bg); color:var(--t-bad-ink); border:1.5px solid var(--t-bad-line); border-radius:18px;
+}
+.sos b{font-size:1.65rem; line-height:1;}
+.tips{display:grid; gap:10px;}
+.tips li{position:relative; padding-left:26px; line-height:1.45;}
+.tips li::before{content:""; position:absolute; left:4px; top:.6em; width:9px; height:9px; border-radius:50%; background:var(--t-gold);}
+.blocked-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 0; border-top:1px solid var(--t-line-2);}
+.blocked-row:first-child{border-top:0;}
+
+/* ---------- Profile ---------- */
+.prof-head{display:flex; align-items:center; gap:18px; flex-wrap:wrap;}
+.ring{
+  position:relative; flex:0 0 auto; width:110px; height:110px; border-radius:50%; display:grid; place-items:center;
+  background:conic-gradient(var(--t-gold) calc(var(--p, 0) * 1%), #2C2A26 0);
+}
+.ring::before{content:""; position:absolute; inset:6px; border-radius:50%; background:var(--t-surface);}
+.ring .av{position:relative; z-index:1;}
+.ring-pct{
+  position:absolute; z-index:2; bottom:-8px; left:50%; transform:translateX(-50%); padding:1px 10px;
+  background:var(--t-gold); color:var(--t-on-gold); border:2px solid var(--t-surface); border-radius:999px; font-size:.85rem; font-weight:700;
+}
+.prof-who{flex:1 1 170px; min-width:0;}
+.prof-who h1{font-size:1.8rem; overflow-wrap:anywhere;}
+.prof-who p{color:var(--t-mute); margin-top:2px;}
+.checklist{display:grid; gap:8px;}
+.check-item{
+  display:flex; align-items:center; gap:12px; width:100%; min-height:48px; padding:8px 14px; text-align:left; cursor:pointer;
+  background:var(--t-surface-2); color:var(--t-ink); border:1.5px dashed var(--t-edge); border-radius:14px;
+}
+.check-item:hover{border-color:var(--t-gold); background:var(--t-surface-3);}
+.check-box{flex:0 0 auto; width:22px; height:22px; border-radius:50%; border:2px solid var(--t-gold-lo);}
+.check-label{flex:1; font-weight:700;}
+.check-pts{color:var(--t-gold); font-weight:700;}
+.photo-grid{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-bottom:6px;}
+.photo-grid.busy{opacity:.5; pointer-events:none;}
+.photo-slot{
+  position:relative; aspect-ratio:3/4; display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:pointer;
+  border:2px dashed var(--t-edge); border-radius:16px; background:var(--t-surface-2) center/cover no-repeat;
+}
+.photo-slot.filled{border-style:solid; border-color:var(--t-line);}
+.photo-slot .plus{font-size:2.2rem; line-height:1; color:var(--t-mute);}
+.photo-slot:not(.filled):hover{border-color:var(--t-gold); background:var(--t-surface-3);}
+.primary-badge{
+  position:absolute; top:6px; left:6px; padding:2px 9px; border-radius:999px; background:var(--t-gold); color:var(--t-on-gold);
+  font-size:.78rem; font-weight:700;
+}
+.del-btn{
+  position:absolute; top:5px; right:5px; width:32px; height:32px; border:0; border-radius:50%; cursor:pointer;
+  background:rgba(9,9,9,.78); color:var(--t-ink); font-size:.9rem; line-height:1;
+}
+.push-box.on{padding:10px 12px; border-radius:14px; background:var(--t-ok-bg); color:var(--t-ok-ink);}
+
+/* ---------- Dialogs, bottom sheets, toasts, floating button ---------- */
+dialog{
+  width:min(92vw, 440px); max-height:92vh; max-height:92dvh; margin:auto; padding:0; overflow:auto;
+  border:0; border-radius:24px; background:var(--t-surface, #fff); color:var(--t-ink, #0B1020); font-family:inherit; font-size:1.0625rem; line-height:1.5;
+  box-shadow:0 2px 6px rgba(0,0,0,.4), 0 24px 64px rgba(0,0,0,.6);
+}
+body.signed-in dialog{border:1px solid rgba(255,212,71,.22);}
+dialog::backdrop{background:rgba(0,0,0,.72);}
+/* The dialog box itself is not a control, so it never needs a focus ring (its buttons keep theirs) */
+body.signed-in dialog:focus, body.signed-in dialog:focus-visible{outline:none;}
+dialog[open]{animation:dlg-in .2s ease-out;}
+@keyframes dlg-in{from{transform:translateY(10px) scale(.98); opacity:0;}to{transform:none; opacity:1;}}
+.dlg{padding:22px 22px 20px;}
+.dlg h2{font-size:1.4rem; margin-bottom:8px;}
+.dlg p{color:var(--t-mute, #5A6683); line-height:1.45;}
+.dlg-actions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; margin-top:18px;}
+.dlg-actions.col{flex-direction:column; align-items:stretch;}
+.dlg-actions .btn{flex:0 1 auto;}
+.sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;}
+#deleteAccountForm .field{margin-top:16px;}
+#deleteAccountForm .msg{margin:14px 0 0;}
+#deleteAccountForm .msg:empty{display:none;}
+.dlg textarea{
+  width:100%; min-height:110px; margin-top:14px; padding:12px 14px; resize:vertical;
+  border:1.5px solid var(--t-input, #8791A8); border-radius:14px; background:var(--t-surface-2, #fff); font:inherit; font-size:1rem; color:var(--t-ink, #0B1020);
+}
+.dlg textarea:focus{outline:3px solid rgba(255,212,71,.55); outline-offset:0; border-color:var(--t-gold, #0B1020);}
+dialog.sheet{width:min(100vw, 560px); max-width:100vw; margin:auto auto 0; border-radius:26px 26px 0 0; padding-bottom:env(safe-area-inset-bottom, 0px);}
+dialog.sheet[open]{animation:sheet-up .24s ease-out;}
+@keyframes sheet-up{from{transform:translateY(28px); opacity:0;}to{transform:none; opacity:1;}}
+@media (min-width:600px){ dialog.sheet{margin:auto; border-radius:24px;} }
+.sheet-grab{width:44px; height:5px; margin:0 auto 14px; border-radius:3px; background:var(--t-edge, #D5D1C0);}
+.sheet-list{display:grid; gap:8px; margin-top:14px;}
+.sheet-list .btn{justify-content:flex-start; width:100%;}
+.sheet-list .btn.danger{justify-content:flex-start;}
+dialog.pd{width:min(94vw, 460px);}
+.pd-bar{display:flex; align-items:center; justify-content:space-between; padding:10px 10px 6px 20px;}
+.pd-bar strong{font-size:1.15rem;}
+#pdBody{display:flex; flex-direction:column; margin:0 14px; border:1px solid var(--t-line, #E7E3D4); border-radius:22px; overflow:hidden; background:var(--t-surface, #fff);}
+#pdBody .card-photo{flex:none; aspect-ratio:4/5; min-height:0;}
+#pdBody .card-body{max-height:none; overflow:visible; -webkit-mask-image:none; mask-image:none;}
+dialog.pd .dlg-actions{margin:0; padding:16px 14px 18px; justify-content:stretch;}
+dialog.pd .dlg-actions .btn{flex:1 1 140px;}
+.pd-note{flex:1 1 100%; text-align:center; color:var(--t-mute, #5A6683); font-size:.97rem;}
+dialog.match{text-align:center; background:radial-gradient(90% 55% at 50% 0%, rgba(255,212,71,.26), rgba(255,212,71,0) 70%), var(--t-surface, #fff);}
+.match-avatars{display:flex; justify-content:center; margin:8px 0 14px;}
+.match-avatars .av{width:104px; height:104px; font-size:2.1rem; border:4px solid var(--t-surface, #fff); box-shadow:0 0 0 2px var(--t-gold, #F6C400), 0 10px 26px rgba(0,0,0,.45);}
+.match-avatars .av + .av{margin-left:-20px;}
+dialog.match[open] .match-avatars .av:first-child{animation:meet-l .55s cubic-bezier(.2,.9,.3,1.2) both;}
+dialog.match[open] .match-avatars .av:last-child{animation:meet-r .55s cubic-bezier(.2,.9,.3,1.2) both;}
+@keyframes meet-l{from{transform:translateX(-46px) scale(.9); opacity:0;}to{transform:none; opacity:1;}}
+@keyframes meet-r{from{transform:translateX(46px) scale(.9); opacity:0;}to{transform:none; opacity:1;}}
+dialog.match h2{font-size:1.9rem;}
+
+#toasts{
+  position:fixed; left:0; right:0; bottom:calc(92px + env(safe-area-inset-bottom, 0px)); z-index:200;
+  display:flex; flex-direction:column; align-items:center; gap:8px; padding:0 16px; pointer-events:none;
+}
+.toast{
+  max-width:min(92vw, 440px); padding:12px 16px; border-radius:14px; background:#1F1E1B; color:var(--t-ink, #FFF9ED);
+  border:1px solid rgba(255,249,237,.1); border-left:4px solid #FFD447; box-shadow:0 2px 6px rgba(0,0,0,.5), 0 14px 36px rgba(0,0,0,.55);
+  font-size:1rem; line-height:1.35; animation:toast-in .22s ease-out; transition:opacity .22s ease, transform .22s ease;
+}
+.toast.err{background:#3A1512; border-left-color:#FF8A80;}
+.toast.has-action{display:flex; align-items:center; gap:12px;}
+.toast-text{flex:1 1 auto; min-width:0;}
+.toast-btn{
+  flex:0 0 auto; pointer-events:auto; min-width:64px; min-height:44px; margin:-8px -8px -8px 0; padding:0 16px;
+  border:1.5px solid #FFD447; border-radius:12px; background:transparent; color:#FFD447;
+  font:inherit; font-weight:700; cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.toast-btn:hover{background:rgba(255,212,71,.16);}
+.toast-btn:disabled{opacity:.6; cursor:default;}
+.toast.err .toast-btn{border-color:#FFB4AB; color:#FFB4AB;}
+.toast.out{opacity:0; transform:translateY(8px);}
+/* On Discover the buttons sit where toasts normally float, so toasts rise above the Back bar instead. */
+body[data-panel="discover"] #toasts{bottom:calc(176px + env(safe-area-inset-bottom, 0px));}
+@keyframes toast-in{from{transform:translateY(10px); opacity:0;}to{transform:none; opacity:1;}}
+
+.fab{display:none;}
+body.signed-in .fab{
+  display:flex; align-items:center; justify-content:center; position:fixed; z-index:50;
+  right:14px; bottom:calc(14px + env(safe-area-inset-bottom, 0px)); width:56px; height:56px; border:0; border-radius:18px;
+  background:var(--t-gold); color:var(--t-on-gold); font-size:1.6rem; line-height:1; cursor:pointer;
+  box-shadow:0 12px 28px rgba(255,212,71,.32), 0 2px 6px rgba(0,0,0,.5); -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease, box-shadow .15s ease;
+}
+body.signed-in .fab:hover{transform:translateY(-2px);}
+body.signed-in .fab:active{transform:scale(.95);}
+body.in-chat .fab{display:none;}
+
+/* ---------- Larger screens ---------- */
+@media (max-width:379px){
+  body.signed-in .saved-pill .pill-word{position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;}
+  body.signed-in .saved-pill{padding:0 8px 0 11px;}
+}
+@media (min-width:900px){
+  body.signed-in .topbar{
+    grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"brand nav right";
+    gap:0 24px; padding:0 28px; min-height:70px;
+  }
+  body.signed-in #mainNav{justify-content:center; margin:0; padding:0; overflow:visible; -webkit-mask-image:none; mask-image:none;}
+  body.signed-in .status-pill, body.signed-in .status-pill.ok{display:inline-block;}
+  #appScreen{padding-top:30px;}
+}
+
+@media (prefers-reduced-motion:reduce){
+  body.signed-in *, body.signed-in *::before, body.signed-in *::after, dialog, dialog::backdrop{
+    animation-duration:.001ms !important; animation-delay:0s !important; transition-duration:.001ms !important; scroll-behavior:auto !important;
+  }
+}
+
+/* =====================================================================
+   LANDING (signed-out front door). Rich black, golden yellow, warm
+   off-white. Works as plain CSS; landing.js adds the pinned, scrubbed
+   scenes when [data-scrub] is set on #landing.
+   Tiers (set by landing.js on #landing[data-tier]):
+     1  plain page: no scroll motion, no animation (also: reduced motion,
+        data saver, slow connection, no JavaScript)
+     2  adds scroll-linked 3D (CSS 3D + GSAP) and smooth scroll on mouse
+     3  adds the WebGL gold heart on capable devices
+   ===================================================================== */
+@keyframes unboot{to{visibility:visible;}}
+body.on-landing{background:#090909; color:#FFF9ED;}
+body.on-landing .topbar, body.on-landing .wrap{display:none;}
+body:not(.on-landing) #landing{display:none;}
+/* Devices that have signed in before wait for the sign-in check (so a signed-in student never sees this page flash).
+   First-time visitors see it at once. Failsafe: it shows itself after 3.5 s. */
+html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s forwards;}
+
+#landing{
+  --lp-gold:#FFD447; --lp-amber:#F5B700; --lp-champ:#FFE8A3; --lp-orange:#FF8A3D; --lp-violet:#9B87F5;
+  --lp-char:#141414; --lp-char-2:#1B1B1A; --lp-black:#090909; --lp-ink:#FFF9ED; --lp-mute:#B9B5AD;
+  --lp-line:rgba(255,212,71,.22);
+  position:relative; min-height:100vh; background:var(--lp-black); color:var(--lp-ink);
+  font-size:1.0625rem; line-height:1.5; overflow-x:clip;
+}
+#landing :where(h1,h2,h3,p,ul,ol,figure){margin:0;}
+#landing :where(ul,ol){padding:0; list-style:none;}
+#landing :where(button){font:inherit;}
+#landing :focus-visible{outline:3px solid var(--lp-gold); outline-offset:3px;}
+#landing em{font-style:italic; font-weight:400; color:var(--lp-gold);}
+
+/* ---------- Bar ---------- */
+.lp-bar{
+  position:fixed; inset:0 0 auto 0; z-index:30; display:flex; align-items:center; justify-content:space-between;
+  padding:calc(12px + env(safe-area-inset-top, 0px)) clamp(16px, 4vw, 40px) 22px;
+  background:linear-gradient(#090909 38%, rgba(9,9,9,0)); pointer-events:none;
+}
+.lp-bar > *{pointer-events:auto;}
+.lp-brand{display:inline-flex; align-items:center; gap:9px; font-size:1.4rem; font-weight:700; letter-spacing:-.01em; color:var(--lp-ink);}
+.lp-brand em{font-style:normal; font-weight:700; color:var(--lp-gold);}
+.lp-logo{width:34px; height:34px; flex:0 0 auto;}
+.lp-bar-login{
+  min-height:44px; padding:0 20px; border-radius:999px; cursor:pointer;
+  border:1.5px solid rgba(255,212,71,.6); background:rgba(9,9,9,.7); color:var(--lp-champ); font-weight:700; font-size:1rem;
+  transition:background-color .15s, border-color .15s, color .15s;
+}
+.lp-bar-login:hover{background:var(--lp-gold); border-color:var(--lp-gold); color:var(--lp-char);}
+
+/* ---------- Buttons ---------- */
+.lp-actions{display:flex; flex-wrap:wrap; gap:12px; margin-top:26px;}
+.lp-actions-center{justify-content:center;}
+.lp-btn{
+  display:inline-flex; align-items:center; justify-content:center; min-height:54px; padding:0 28px; border-radius:999px;
+  font-weight:700; font-size:1.08rem; line-height:1.1; cursor:pointer; border:1.5px solid transparent;
+  transition:background-color .15s, border-color .15s, transform .08s, box-shadow .2s; -webkit-tap-highlight-color:transparent;
+}
+.lp-btn:active{transform:scale(.98);}
+.lp-btn-gold{background:var(--lp-gold); color:var(--lp-char); box-shadow:0 0 0 0 rgba(255,212,71,.4), 0 10px 30px rgba(255,212,71,.22);}
+.lp-btn-gold:hover{background:#FFE17A; box-shadow:0 0 0 6px rgba(255,212,71,.14), 0 12px 36px rgba(255,212,71,.3);}
+.lp-btn-line{background:transparent; color:var(--lp-ink); border-color:rgba(255,249,237,.32);}
+.lp-btn-line:hover{border-color:var(--lp-gold); color:var(--lp-gold);}
+
+/* ---------- Scenes ---------- */
+.lp-scene{position:relative;}
+.lp-stage{position:relative; min-height:100vh; min-height:100svh; overflow:hidden;}
+.lp-aura{
+  position:absolute; inset:-8% -12% auto; height:78%; pointer-events:none;
+  background:radial-gradient(48% 52% at 50% 42%, rgba(255,212,71,.26), rgba(255,212,71,.07) 55%, rgba(255,212,71,0) 74%);
+}
+.lp-grid{
+  position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(rgba(255,249,237,.04) 1px, transparent 1px) 0 0/48px 48px,
+    linear-gradient(90deg, rgba(255,249,237,.04) 1px, transparent 1px) 0 0/48px 48px;
+  -webkit-mask-image:radial-gradient(70% 60% at 50% 38%, #000, transparent 78%);
+          mask-image:radial-gradient(70% 60% at 50% 38%, #000, transparent 78%);
+}
+
+/* ---------- Hero ---------- */
+.lp-hero .lp-stage{
+  display:flex; flex-direction:column; padding:84px clamp(20px, 5vw, 64px) calc(32px + env(safe-area-inset-bottom, 0px));
+}
+.lp-heart-wrap{
+  position:relative; flex:1 1 0; min-height:clamp(150px, 27svh, 360px); perspective:1100px; z-index:1;
+  --u:clamp(2px, .9vmin, 4.6px);
+}
+.lp-heart-wrap::before{
+  content:""; position:absolute; left:50%; top:52%; width:min(86%, 460px); aspect-ratio:1; transform:translate(-50%,-50%);
+  background:radial-gradient(closest-side, rgba(255,212,71,.34), rgba(255,212,71,0)); pointer-events:none;
+}
+.lp-heart{
+  position:absolute; inset:0; margin:auto; height:min(86%, 290px, 64vw); aspect-ratio:100/92; transform-style:preserve-3d;
+}
+.lp-heart-tilt, .lp-heart-spin{position:absolute; inset:0; transform-style:preserve-3d;}
+.lp-heart-spin{transform:rotateX(9deg) rotateY(-27deg);}
+.lp-layer{
+  position:absolute; inset:0; width:100%; height:100%; overflow:visible; fill:var(--c, #D99A00);
+  transform:translateZ(calc(var(--k, 0) * var(--u)));
+}
+.lp-face{fill:url(#lp-face-grad);}
+.lp-shine{fill:rgba(255,255,255,.5);}
+.lp-canvas{
+  position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; opacity:0; transition:opacity .7s ease;
+}
+.lp-canvas.on{opacity:1;}
+.landing.gl-on .lp-heart-wrap .lp-heart{opacity:0; transition:opacity .5s ease;}
+.lp-copy{position:relative; z-index:2; padding-top:18px; background:linear-gradient(to top, #090909 70%, rgba(9,9,9,0));}
+.lp-hero h1{
+  max-width:12em; font-size:clamp(2.35rem, min(9vw, 6.2svh), 5.4rem); line-height:1.02; letter-spacing:-.022em; font-weight:700; text-wrap:balance;
+}
+.lp-lede{max-width:30em; margin-top:16px; color:var(--lp-mute); font-size:clamp(1.08rem, 2.9vw, 1.4rem); line-height:1.45;}
+.lp-fine{margin-top:18px; color:var(--lp-mute); font-size:.95rem;}
+.lp-cue{display:none;}
+@media (min-width:900px){
+  .lp-hero .lp-stage{display:grid; grid-template-columns:minmax(0, 1.05fr) minmax(0, .95fr); align-items:center; column-gap:3vw; padding-top:96px;}
+  .lp-copy{grid-column:1; grid-row:1; padding-top:0; background:none;}
+  .lp-heart-wrap{grid-column:2; grid-row:1; flex:none; height:min(72svh, 600px); min-height:0;}
+  .lp-heart{height:min(92%, 480px, 30vw);}
+  .lp-lede{margin-top:20px;}
+}
+@media (max-height:640px) and (max-width:899px){
+  .lp-lede{display:none;}
+  .lp-actions{margin-top:18px;}
+}
+
+/* ---------- How it works ---------- */
+.lp-story .lp-stage{display:grid; gap:34px; padding:clamp(72px, 12vw, 130px) clamp(20px, 5vw, 64px);}
+.lp-story h2{font-size:clamp(2rem, 6vw, 3.4rem); line-height:1.05; letter-spacing:-.018em; margin-bottom:22px;}
+.lp-steps{display:grid; gap:22px;}
+.lp-step h3{font-size:clamp(1.45rem, 4.6vw, 2.2rem); line-height:1.1; letter-spacing:-.01em;}
+.lp-step p{margin-top:8px; max-width:28em; color:var(--lp-mute); font-size:1.12rem; line-height:1.5;}
+
+.lp-deck{position:relative; width:min(78vw, 310px); height:min(108vw, 440px); margin:30px auto 44px; perspective:1300px;}
+.lp-card{
+  position:absolute; inset:0; display:flex; flex-direction:column; padding:18px; overflow:hidden;
+  background:var(--lp-char); border:1px solid var(--lp-line); border-radius:26px;
+  box-shadow:0 34px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,249,237,.05);
+  transform-style:preserve-3d; backface-visibility:hidden; will-change:transform;
+}
+.lp-card-title{font-size:1.35rem; font-weight:700; margin-bottom:14px;}
+/* Plain-page poses: a fan, with the swipe card in front */
+.lp-card-a{transform:translate3d(-17%, 5%, 0) rotate(-8deg) scale(.88);}
+.lp-card-c{transform:translate3d(17%, 5%, 0) rotate(8deg) scale(.88);}
+.lp-card-b{transform:translateZ(30px); padding:0;}
+
+.lp-ring{
+  position:relative; width:112px; height:112px; margin:6px auto 18px; border-radius:50%; display:grid; place-items:center;
+  background:conic-gradient(var(--lp-gold) calc(var(--p, 0) * 1%), #2C2A26 0);
+}
+.lp-ring::before{content:""; position:absolute; inset:7px; border-radius:50%; background:var(--lp-char);}
+.lp-avatar{
+  position:relative; z-index:1; width:78px; height:78px; border-radius:50%;
+  background:radial-gradient(circle at 50% 36%, #FFE8A3 0 17%, transparent 18%), radial-gradient(ellipse at 50% 112%, #FFD447 0 46%, transparent 47%), #3A3320;
+}
+.lp-checks{display:grid; gap:9px;}
+.lp-checks li{position:relative; padding:10px 12px 10px 40px; border:1.5px dashed #46433B; border-radius:12px; color:var(--lp-mute); font-weight:700;}
+.lp-checks li::before{content:""; position:absolute; left:12px; top:50%; width:18px; height:18px; margin-top:-9px; border-radius:50%; border:2px solid var(--lp-amber);}
+.lp-checks li.done{border-style:solid; border-color:rgba(255,212,71,.35); color:var(--lp-ink);}
+.lp-checks li.done::before{background:var(--lp-gold) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141414' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center/12px no-repeat; border-color:var(--lp-gold);}
+
+.lp-card-photo{
+  position:relative; flex:1 1 auto; overflow:hidden;
+  background:radial-gradient(circle at 30% 18%, #5A4A16, #141414 74%);
+}
+.lp-silhouette{
+  position:absolute; left:50%; bottom:-6%; width:64%; aspect-ratio:1; transform:translateX(-50%);
+  background:radial-gradient(circle at 50% 24%, #FFD447 0 21%, transparent 22%), radial-gradient(ellipse at 50% 100%, #FFD447 0 52%, transparent 53%);
+  opacity:.9;
+}
+.lp-likes{position:absolute; top:14px; left:14px; padding:4px 12px; border-radius:999px; background:var(--lp-gold); color:var(--lp-char); font-weight:700; font-size:.88rem;}
+.lp-stamp{
+  position:absolute; top:46px; left:16px; padding:3px 14px; border:3px solid #5FD39A; border-radius:10px; color:#5FD39A; background:rgba(9,9,9,.8);
+  font-size:1.6rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; transform:rotate(-12deg); opacity:0;
+}
+.lp-card-body{padding:12px 18px 6px; background:var(--lp-char);}
+.lp-card-name{font-size:1.5rem; font-weight:700; line-height:1.1;}
+.lp-card-sub{margin-top:2px; color:var(--lp-mute); font-size:.98rem;}
+.lp-tags{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px;}
+.lp-tags span{padding:2px 10px; border-radius:999px; border:1px solid var(--lp-line); background:#262522; color:#E8E2D4; font-size:.85rem;}
+.lp-act{display:flex; justify-content:center; gap:18px; padding:8px 0 16px; background:var(--lp-char);}
+.lp-round{display:inline-grid; place-items:center; width:48px; height:48px; border-radius:50%; border:1.5px solid #46433B; background:#1B1B1A; color:#FF6B5E;}
+.lp-round svg{width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round;}
+.lp-round-like{width:56px; height:56px; margin-top:-4px; background:var(--lp-gold); border-color:var(--lp-gold); color:var(--lp-char); box-shadow:0 0 22px rgba(255,212,71,.35);}
+.lp-round-like svg{fill:currentColor; stroke:none; width:26px; height:26px;}
+
+.lp-card-c{justify-content:flex-start;}
+.lp-match{color:var(--lp-gold); text-align:center; margin-top:6px;}
+.lp-bubbles{display:flex; flex-direction:column; gap:9px; margin-top:6px;}
+.lp-bub{max-width:82%; padding:9px 14px; font-size:1rem; line-height:1.35;}
+.lp-bub-in{align-self:flex-start; background:#262522; border:1px solid #2C2A26; border-radius:18px 18px 18px 5px;}
+.lp-bub-out{align-self:flex-end; background:var(--lp-gold); color:var(--lp-char); border-radius:18px 18px 5px 18px;}
+.lp-burst{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; z-index:5;}
+.lp-burst i{position:absolute; width:62%; aspect-ratio:1; border-radius:50%; border:3px solid var(--lp-gold); opacity:0;}
+.lp-burst i + i{border-color:var(--lp-orange); width:44%;}
+.lp-caption{position:absolute; left:-10%; right:-10%; top:calc(100% + 14px); text-align:center; color:var(--lp-mute); font-size:.85rem;}
+
+@media (min-width:900px){
+  .lp-story .lp-stage{grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); align-items:center; column-gap:6vw;}
+  .lp-deck{width:min(30vw, 340px); height:min(42vw, 480px); margin:0 auto;}
+}
+
+/* ---------- Pinned scenes (tier 2 and up) ---------- */
+.landing[data-scrub] .lp-hero{height:240vh; height:240svh;}
+.landing[data-scrub] .lp-story{height:430vh; height:430svh;}
+.landing[data-scrub] .lp-stage{position:sticky; top:0; height:100vh; height:100svh; min-height:0;}
+.landing[data-scrub] .lp-cue{
+  display:block; position:absolute; left:50%; bottom:calc(14px + env(safe-area-inset-bottom, 0px)); width:2px; height:34px; margin-left:-1px; z-index:3;
+  background:linear-gradient(rgba(255,212,71,0), rgba(255,212,71,.8)); border-radius:1px; overflow:hidden;
+}
+.landing[data-scrub] .lp-cue i{position:absolute; left:0; right:0; top:0; height:10px; background:var(--lp-gold); border-radius:1px; animation:lp-cue 1.8s ease-in infinite;}
+@keyframes lp-cue{from{transform:translateY(-12px); opacity:0;} 30%{opacity:1;} to{transform:translateY(36px); opacity:0;}}
+.landing[data-tier="2"] .lp-heart, .landing[data-tier="3"] .lp-heart{animation:lp-float 7s ease-in-out infinite;}
+@keyframes lp-float{50%{transform:translateY(-2.4%);}}
+
+.landing[data-scrub] .lp-story .lp-stage{
+  grid-template-rows:auto minmax(0, 1fr); gap:0; padding:calc(78px + env(safe-area-inset-top, 0px)) clamp(20px, 5vw, 64px) calc(20px + env(safe-area-inset-bottom, 0px));
+  align-items:start;
+}
+.landing[data-scrub] .lp-story h2{margin-bottom:16px; font-size:1.2rem; color:var(--lp-champ); letter-spacing:0;}
+.landing[data-scrub] .lp-step h3{font-size:clamp(1.8rem, 6.2vw, 2.9rem);}
+.landing[data-scrub] .lp-steps{display:grid; gap:0;}
+.landing[data-scrub] .lp-step{grid-area:1 / 1; opacity:0; visibility:hidden;}
+.landing[data-scrub] .lp-step:first-child{opacity:1; visibility:visible;}
+.landing[data-scrub] .lp-step p{font-size:1.08rem;}
+.landing[data-scrub] .lp-deck{margin:0 auto; align-self:center; width:min(70vw, 300px, 40svh * .72); height:min(97vw, 420px, 40svh);}
+.landing[data-scrub] .lp-card{transform:none;}
+.landing[data-scrub] .lp-card-a, .landing[data-scrub] .lp-card-b, .landing[data-scrub] .lp-card-c{transform:none;}
+.lp-progress{display:flex; gap:7px; margin-top:16px;}
+.lp-progress i{width:26px; height:4px; border-radius:2px; background:#3A3832; transition:background-color .2s, width .2s;}
+.lp-progress i.on{background:var(--lp-gold); width:44px;}
+@media (min-width:900px){
+  .landing[data-scrub] .lp-story .lp-stage{grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); grid-template-rows:minmax(0, 1fr); align-items:center; column-gap:6vw; padding-top:calc(86px + env(safe-area-inset-top, 0px));}
+  .landing[data-scrub] .lp-deck{width:min(30vw, 340px, 62svh * .72); height:min(42vw, 480px, 62svh);}
+}
+
+/* ---------- Plain sections ---------- */
+.lp-section{padding:clamp(70px, 12vw, 140px) 0; position:relative;}
+.lp-wrap{width:min(1120px, calc(100% - 40px)); margin-inline:auto;}
+.lp-section h2{font-size:clamp(2rem, 6vw, 3.4rem); line-height:1.05; letter-spacing:-.018em; max-width:14em; text-wrap:balance;}
+.lp-section-lede{max-width:36em; margin-top:16px; color:var(--lp-mute); font-size:clamp(1.08rem, 2.6vw, 1.3rem); line-height:1.5;}
+.lp-safety{background:var(--lp-char); border-block:1px solid rgba(255,212,71,.12);}
+.lp-tiles, .lp-places{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap:16px; margin-top:42px;}
+.lp-tile, .lp-place{
+  padding:24px 22px 26px; background:var(--lp-black); border:1px solid var(--lp-line); border-radius:22px;
+  box-shadow:0 20px 44px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,249,237,.04);
+}
+.lp-tile svg{width:34px; height:34px; margin-bottom:16px; fill:none; stroke:var(--lp-gold); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;}
+.lp-tile h3, .lp-place h3{font-size:1.4rem; line-height:1.15; margin-bottom:8px;}
+.lp-tile p, .lp-place p{color:var(--lp-mute); line-height:1.5;}
+.lp-place .lp-place-area{color:var(--lp-champ); font-weight:700; margin:-2px 0 10px;}
+.lp-places{grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr));}
+.lp-place{background:var(--lp-char);}
+.lp-photo{margin:-8px -6px 16px; border-radius:16px; overflow:hidden; aspect-ratio:8/5; background:#1B1B1A;}
+.lp-photo img{display:block; width:100%; height:100%; object-fit:cover;}
+.lp-tilt{
+  transform:perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition:transform .18s ease-out, border-color .2s, box-shadow .2s;
+}
+.lp-tilt:hover{border-color:rgba(255,212,71,.6); box-shadow:0 20px 44px rgba(0,0,0,.45), 0 0 34px rgba(255,212,71,.12);}
+.lp-join{text-align:center; overflow:hidden;}
+.lp-join::before{
+  content:""; position:absolute; left:50%; top:50%; width:min(900px, 120%); aspect-ratio:2; transform:translate(-50%,-50%); pointer-events:none;
+  background:radial-gradient(closest-side, rgba(255,212,71,.2), rgba(255,212,71,0));
+}
+.lp-join-in{position:relative;}
+.lp-join h2, .lp-join .lp-section-lede{margin-inline:auto;}
+.lp-foot{padding:34px 20px calc(40px + env(safe-area-inset-bottom, 0px)); text-align:center; color:var(--lp-mute); font-size:.95rem; border-top:1px solid rgba(255,212,71,.12);}
+.lp-foot p + p{margin-top:6px;}
+.lp-foot a{color:var(--lp-gold); font-weight:700;}
+
+@media (prefers-reduced-motion:reduce){
+  #landing *, #landing *::before, #landing *::after{animation:none !important; transition-duration:.001ms !important; scroll-behavior:auto !important;}
+  .lp-tilt{transform:none !important;}
+}
+
+</style>
+</head>
+<body class="booting on-landing">
+<noscript><p style="padding:24px;font-size:1rem">TUMingle needs JavaScript to run. Please turn it on and reload.</p></noscript>
+
+<!-- Icon sprite used by the swipe buttons, chat bar and dialogs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5C5 15.5 3 12 3 8.8 3 6.2 5 4.5 7.3 4.5c1.7 0 3.2.9 4.7 2.8 1.5-1.9 3-2.8 4.7-2.8C19 4.5 21 6.2 21 8.8c0 3.2-2 6.7-9 11.7z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+</svg>
+
+<!-- ===================================================================
+     LANDING: what signed-out visitors see first. The login screen below is
+     untouched; the buttons marked data-lp-login open it. Everything here
+     works as plain HTML and CSS. landing.js only adds motion on top (see
+     the tiers in landing.js), and the signed-in app never loads it.
+     No member photos and no stock photos are used on this page.
+     =================================================================== -->
+<div id="landing" class="landing" data-tier="1">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <path id="lp-heart-path" d="M50 88C20 66 4 48 4 29 4 14 15 5 28 5c9 0 17 5 22 13C55 10 63 5 72 5c13 0 24 9 24 24 0 19-16 37-46 59z"/>
+      <linearGradient id="lp-face-grad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#FFE8A3"/><stop offset=".45" stop-color="#FFD447"/><stop offset="1" stop-color="#F5B700"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <header class="lp-bar">
+    <span class="lp-brand">
+      <svg class="lp-logo" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 10c-8-9-22-4-22 7 0 10 14 18 22 23 8-5 22-13 22-23 0-11-14-16-22-7z" fill="#FFD447"/>
+        <path d="M24 16c-5-5-13-2-13 4 0 6 8 11 13 14 5-3 13-8 13-14 0-6-8-9-13-4z" fill="#090909"/>
+        <path d="M15 9l9 5 9-5-9-5-9 5z" fill="#FFD447"/>
+        <rect x="22.5" y="10" width="3" height="6" rx="1" fill="#FFD447"/>
+      </svg>
+      <span>TUM<em>ingle</em></span>
+    </span>
+    <button type="button" class="lp-bar-login" data-lp-login>Log in</button>
+  </header>
+
+  <main id="lpMain">
+
+    <!-- 1. HERO -->
+    <section class="lp-scene lp-hero" id="lpHero" aria-labelledby="lpTitle">
+      <div class="lp-stage">
+        <div class="lp-aura" aria-hidden="true"></div>
+        <div class="lp-grid" aria-hidden="true"></div>
+        <div class="lp-heart-wrap" aria-hidden="true">
+          <div class="lp-heart">
+            <div class="lp-heart-tilt">
+              <div class="lp-heart-spin">
+                <svg class="lp-layer lp-face" viewBox="0 0 100 92" style="--k:-7" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-6;--c:#7A5200" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-5;--c:#845A00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-4;--c:#8E6300" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-3;--c:#996B00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-2;--c:#A37400" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:-1;--c:#AD7C00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:0;--c:#B88400" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:1;--c:#C28D00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:2;--c:#CC9500" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:3;--c:#D69E00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:4;--c:#E0A600" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:5;--c:#EBAF00" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer" viewBox="0 0 100 92" style="--k:6;--c:#F5B700" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer lp-face" viewBox="0 0 100 92" style="--k:7" aria-hidden="true"><use href="#lp-heart-path"/></svg>
+                <svg class="lp-layer lp-shine" viewBox="0 0 100 92" style="--k:7.3" aria-hidden="true"><path d="M17 27C17 16 24 10 32 10c6 0 11 3 14 8-9-3-20-2-29 9z"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+        <canvas class="lp-canvas" id="lpCanvas" aria-hidden="true"></canvas>
+        <div class="lp-copy">
+          <h1 id="lpTitle">Meet someone at TUM, <em>the safe way.</em></h1>
+          <p class="lp-lede">Swipe, match and chat with students at the Technical University of Mombasa. Openers, date ideas and safety tools are built in.</p>
+          <div class="lp-actions">
+            <button type="button" class="lp-btn lp-btn-gold" data-lp-login>Join TUMingle</button>
+            <button type="button" class="lp-btn lp-btn-line" data-lp-scroll="lpStory">See how it works</button>
+          </div>
+          <p class="lp-fine">Free to use. You must be 18 or older.</p>
+        </div>
+        <div class="lp-cue" aria-hidden="true"><i></i></div>
+      </div>
+    </section>
+
+    <!-- 2. HOW IT WORKS: a pinned scene when motion is on, a plain list otherwise -->
+    <section class="lp-scene lp-story" id="lpStory" aria-labelledby="lpStoryTitle">
+      <div class="lp-stage">
+        <div class="lp-story-copy">
+          <h2 id="lpStoryTitle">How it works</h2>
+          <ol class="lp-steps">
+            <li class="lp-step" data-step="1">
+              <h3>Make a profile that sounds like you</h3>
+              <p>Add photos, your course and your interests. Your profile shows how complete it is and what's left to add.</p>
+            </li>
+            <li class="lp-step" data-step="2">
+              <h3>Swipe through people</h3>
+              <p>Like, pass or save for later. Pressed the wrong one? Back takes you to the last person.</p>
+            </li>
+            <li class="lp-step" data-step="3">
+              <h3>Chat once you both like each other</h3>
+              <p>Messages open only after a match. Opener ideas help you say the first thing.</p>
+            </li>
+          </ol>
+        </div>
+
+        <div class="lp-deck" aria-hidden="true">
+          <div class="lp-burst"><i></i><i></i></div>
+
+          <div class="lp-card lp-card-a">
+            <div class="lp-ring" style="--p:72"><span class="lp-avatar"></span></div>
+            <p class="lp-card-title">Your profile</p>
+            <ul class="lp-checks">
+              <li class="done">Photos</li>
+              <li class="done">Course and year</li>
+              <li class="done">Bio</li>
+              <li>Interests</li>
+            </ul>
+          </div>
+
+          <div class="lp-card lp-card-b">
+            <div class="lp-card-photo">
+              <span class="lp-silhouette"></span>
+              <span class="lp-likes">Likes you</span>
+              <span class="lp-stamp">Like</span>
+            </div>
+            <div class="lp-card-body">
+              <p class="lp-card-name">Name, 21</p>
+              <p class="lp-card-sub">Your course · Year 2</p>
+              <p class="lp-tags"><span>Football</span><span>Gospel</span><span>Photography</span></p>
+            </div>
+            <div class="lp-act">
+              <span class="lp-round lp-round-pass"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+              <span class="lp-round lp-round-like"><svg viewBox="0 0 24 24"><path d="M12 20.5C5 15.5 3 12 3 8.8 3 6.2 5 4.5 7.3 4.5c1.7 0 3.2.9 4.7 2.8 1.5-1.9 3-2.8 4.7-2.8C19 4.5 21 6.2 21 8.8c0 3.2-2 6.7-9 11.7z"/></svg></span>
+            </div>
+          </div>
+
+          <div class="lp-card lp-card-c">
+            <p class="lp-card-title lp-match">It's a match</p>
+            <div class="lp-bubbles">
+              <p class="lp-bub lp-bub-in">Hi! I saw we both like football.</p>
+              <p class="lp-bub lp-bub-out">Hey! Which team do you support?</p>
+              <p class="lp-bub lp-bub-in">Gor Mahia, always.</p>
+            </div>
+          </div>
+          <p class="lp-caption">Illustration of the app. The names and messages are examples.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. SAFETY -->
+    <section class="lp-section lp-safety" id="lpSafety" aria-labelledby="lpSafetyTitle">
+      <div class="lp-wrap">
+        <h2 id="lpSafetyTitle">Safety tools are part of the app</h2>
+        <p class="lp-section-lede">Meeting people is better when you can check, tell a friend and get help fast. These are in TUMingle from the start.</p>
+        <ul class="lp-tiles">
+          <li class="lp-tile lp-tilt">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/></svg>
+            <h3>Scam check</h3>
+            <p>Paste a message to look for common warning signs. It's a keyword check, so it can miss scams. Use it as a second opinion.</p>
+          </li>
+          <li class="lp-tile lp-tilt">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+            <h3>Date check-in</h3>
+            <p>Write one message for a friend with who you're meeting, where and when. Send it on WhatsApp.</p>
+          </li>
+          <li class="lp-tile lp-tilt">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg>
+            <h3>Block and report</h3>
+            <p>Block anyone, or report a profile or a chat. Reports are private.</p>
+          </li>
+          <li class="lp-tile lp-tilt">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/></svg>
+            <h3>Emergency numbers</h3>
+            <p>Police 999, emergency 112 and the GBV helpline 1195 sit behind the safety button once you're in.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 4. MOMBASA -->
+    <section class="lp-section lp-mombasa" id="lpMombasa" aria-labelledby="lpMombasaTitle">
+      <div class="lp-wrap">
+        <h2 id="lpMombasaTitle">Date ideas around Mombasa</h2>
+        <p class="lp-section-lede">Places around town, sorted by vibe, each with a Maps link for directions. For a first date, pick somewhere public and tell a friend.</p>
+        <ul class="lp-places">
+          <li class="lp-place lp-tilt">
+            <!-- Campus or Mombasa photo slot: to add a photo later, put a file in the repo and set data-src to its name. It stays hidden until then. -->
+            <figure class="lp-photo" data-lp-photo data-src="" hidden><img alt="" loading="lazy" decoding="async" width="640" height="400"></figure>
+            <h3>Fort Jesus</h3>
+            <p class="lp-place-area">Old Town</p>
+            <p>A Portuguese-built fort and a UNESCO World Heritage Site. Plenty to look at and talk about.</p>
+          </li>
+          <li class="lp-place lp-tilt">
+            <figure class="lp-photo" data-lp-photo data-src="" hidden><img alt="" loading="lazy" decoding="async" width="640" height="400"></figure>
+            <h3>Mama Ngina Waterfront</h3>
+            <p class="lp-place-area">Mombasa Island</p>
+            <p>A seafront park over the Likoni Channel. Sit by the sea and watch the ships come and go.</p>
+          </li>
+          <li class="lp-place lp-tilt">
+            <figure class="lp-photo" data-lp-photo data-src="" hidden><img alt="" loading="lazy" decoding="async" width="640" height="400"></figure>
+            <h3>Nyali Beach</h3>
+            <p class="lp-place-area">Nyali</p>
+            <p>A quieter beach, so it's easier to hear each other talk.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 5. JOIN -->
+    <section class="lp-section lp-join" id="lpJoin" aria-labelledby="lpJoinTitle">
+      <div class="lp-wrap lp-join-in">
+        <h2 id="lpJoinTitle">Ready to meet someone?</h2>
+        <p class="lp-section-lede">Enter an email and a password. If you're new, your account is created for you.</p>
+        <div class="lp-actions lp-actions-center">
+          <button type="button" class="lp-btn lp-btn-gold" data-lp-login>Join TUMingle</button>
+          <button type="button" class="lp-btn lp-btn-line" data-lp-login>Log in</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lp-foot">
+    <p>TUMingle is made for students at the Technical University of Mombasa. You must be 18 or older to use it.</p>
+    <p>In danger? Call <a href="tel:999">999</a> or <a href="tel:112">112</a>.</p>
+  </footer>
+</div>
+
+
+<header class="topbar">
+  <a class="brand" id="brandLink" href="#home" data-go="home" aria-label="TUMingle home">
+    <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M24 10c-8-9-22-4-22 7 0 10 14 18 22 23 8-5 22-13 22-23 0-11-14-16-22-7z" fill="#FFD447"/>
+      <path d="M24 16c-5-5-13-2-13 4 0 6 8 11 13 14 5-3 13-8 13-14 0-6-8-9-13-4z" fill="#090909"/>
+      <path d="M15 9l9 5 9-5-9-5-9 5z" fill="#FFD447"/>
+      <rect x="22.5" y="10" width="3" height="6" rx="1" fill="#FFD447"/>
+    </svg>TUM<span>ingle</span>
+  </a>
+
+  <nav id="mainNav" aria-label="Main">
+    <a class="tab active" href="#home" data-panel="home" data-go="home"><span aria-hidden="true">🏠</span>Home</a>
+    <a class="tab" href="#discover" data-panel="discover" data-go="discover"><span aria-hidden="true">🔥</span>Discover</a>
+    <a class="tab" href="#matches" data-panel="matches" data-go="matches"><span aria-hidden="true">💬</span>Matches</a>
+    <a class="tab" href="#admirers" data-panel="admirers" data-go="admirers"><span aria-hidden="true">💌</span>Admirers<span class="nav-badge" id="navAdmirersBadge" hidden>0</span></a>
+    <a class="tab" href="#safety" data-panel="safety" data-go="safety"><span aria-hidden="true">🛡️</span>Safety</a>
+    <a class="tab" href="#profile" data-panel="profile" data-go="profile"><span aria-hidden="true">👤</span>Profile</a>
+  </nav>
+
+  <div class="topbar-right">
+    <button type="button" class="saved-pill" id="savedPill"><span aria-hidden="true">🔖</span><span class="pill-word">Saved</span><b id="savedCount">0</b></button>
+    <span id="authStatus" class="status-pill">Checking…</span>
+    <button class="btn secondary small" id="logoutBtn" style="display:none;">Log out</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- AUTH: one box — logs in an existing student, or creates the account
+       automatically the first time this email is used. No separate signup
+       screen; see wireAuthScreen()/loginBtn in app.js. -->
+  <div id="authScreen">
+    <div class="auth-hero">
+      <div class="auth-mark">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M24 10c-8-9-22-4-22 7 0 10 14 18 22 23 8-5 22-13 22-23 0-11-14-16-22-7z" fill="#17140D"/>
+          <path d="M24 16c-5-5-13-2-13 4 0 6 8 11 13 14 5-3 13-8 13-14 0-6-8-9-13-4z" fill="#F6C400"/>
+          <path d="M15 9l9 5 9-5-9-5-9 5z" fill="#17140D"/>
+          <rect x="22.5" y="10" width="3" height="6" rx="1" fill="#17140D"/>
+        </svg>
+        <span>TUM<em>ingle</em></span>
+      </div>
+      <p class="auth-tagline">Meet. Connect. Mingle.</p>
+      <p class="auth-sub">A dating &amp; social app made for Technical University of Mombasa students.</p>
+      <div class="auth-badges">
+        <span class="auth-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 4.5v6c0 5-3.8 8.7-9 9.5-5.2-.8-9-4.5-9-9.5v-6L12 2z"/></svg>
+          Made for TUM Students
+        </span>
+        <span class="auth-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 4.5v6c0 5-3.8 8.7-9 9.5-5.2-.8-9-4.5-9-9.5v-6L12 2z"/></svg>
+          Safety tools built in
+        </span>
+      </div>
+    </div>
+
+    <div class="auth-body">
+      <div class="auth-card">
+        <div id="authMsg" class="msg" role="alert"></div>
+
+        <div id="loginForm">
+          <h2>Welcome back</h2>
+          <p class="auth-card-sub">Log in, or create your account below — no separate signup needed.</p>
+          <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" placeholder="you@gmail.com" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" enterkeyhint="next"></div>
+          <div class="field"><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" enterkeyhint="go"></div>
+          <button type="button" class="btn auth-submit" id="loginBtn">Continue</button>
+          <p class="hint center">First time? Just enter an email and password above — your account is created automatically. Returning? The same box logs you back in. By continuing you confirm you're 18 or older.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     MAIN APP
+     =================================================================== -->
+<main id="appScreen" style="display:none;">
+
+  <!-- HOME -->
+  <section class="panel active" id="homePanel" aria-labelledby="homeTitle">
+    <div class="notice" id="homeNotice" role="status" hidden>
+      <p><b>Your profile isn't being saved.</b> We couldn't reach the database, so changes you make now won't be kept.</p>
+      <button type="button" class="btn small" id="homeRetry">Try again</button>
+    </div>
+
+    <div class="hero">
+      <span class="hero-badge">Made for TUM students</span>
+      <h1 id="homeTitle" data-heading>Meet someone at TUM, <em>the safe way</em></h1>
+      <p>Swipe, match and chat. Openers, Mombasa date ideas and safety tools are built in.</p>
+    </div>
+
+    <div class="nudge" id="profileNudge" hidden>
+      <div class="nudge-main">
+        <p class="nudge-title"><b>Your profile is <span id="nudgePct">0%</span> complete</b></p>
+        <div class="nudge-bar" aria-hidden="true"><i id="nudgeBar"></i></div>
+        <p class="nudge-text" id="nudgeText"></p>
+      </div>
+      <button type="button" class="btn btn-gold small" id="nudgeBtn">Finish profile</button>
+    </div>
+
+    <ul class="tools" aria-label="Everything in TUMingle">
+      <li><a class="tool" href="#discover" data-go="discover"><span class="ico" aria-hidden="true">🔥</span><b>Discover</b><small>Browse and like</small></a></li>
+      <li><a class="tool" href="#matches" data-go="matches"><span class="ico" aria-hidden="true">💬</span><b>Matches</b><small>Chat with matches</small></a></li>
+      <li><a class="tool" href="#admirers" data-go="admirers"><span class="ico" aria-hidden="true">💌</span><b>Admirers</b><small>Who likes you</small><span class="count" id="badgeAdmirers" hidden>0</span></a></li>
+      <li><a class="tool" href="#saved" data-go="saved"><span class="ico" aria-hidden="true">🔖</span><b>Saved</b><small>Your shortlist</small><span class="count" id="badgeSaved" hidden>0</span></a></li>
+      <li><a class="tool" href="#icebreakers" data-go="icebreakers"><span class="ico" aria-hidden="true">💡</span><b>Icebreakers</b><small>What to say first</small></a></li>
+      <li><a class="tool" href="#dates" data-go="dates"><span class="ico" aria-hidden="true">🌴</span><b>Date ideas</b><small>Places in Mombasa</small></a></li>
+      <li><a class="tool" href="#bio" data-go="bio"><span class="ico" aria-hidden="true">✍️</span><b>Bio builder</b><small>Write your bio</small></a></li>
+      <li><a class="tool" href="#checkin" data-go="checkin"><span class="ico" aria-hidden="true">📍</span><b>Date check-in</b><small>Tell a friend</small></a></li>
+      <li><a class="tool" href="#scam" data-go="scam"><span class="ico" aria-hidden="true">🔍</span><b>Scam check</b><small>Spot warning signs</small></a></li>
+      <li><a class="tool" href="#safety" data-go="safety"><span class="ico" aria-hidden="true">🛡️</span><b>Safety</b><small>Help and blocking</small></a></li>
+    </ul>
+
+    <div class="stats">
+      <a class="stat" href="#discover" data-go="discover"><strong id="statDiscover">0</strong><span>People to meet</span></a>
+      <a class="stat" href="#matches" data-go="matches"><strong id="statMatches">0</strong><span>Matches</span></a>
+      <a class="stat" href="#admirers" data-go="admirers"><strong id="statAdmirers">0</strong><span>Admirers</span></a>
+      <a class="stat" href="#profile" data-go="profile"><strong id="statStrength">0%</strong><span>Profile strength</span></a>
+    </div>
+
+    <div class="invite-row"><button type="button" class="btn ghost" id="homeInviteBtn">Invite a friend</button></div>
+  </section>
+
+  <!-- DISCOVER -->
+  <section class="panel narrow" id="discoverPanel" aria-labelledby="discoverTitle">
+    <div class="panel-head">
+      <h1 id="discoverTitle" data-heading>Discover</h1>
+      <p>Swipe right to like, left to pass.</p>
+    </div>
+    <div id="discoverMsg" class="msg" role="status"></div>
+    <div class="stack" id="stack"></div>
+    <div class="deck-bar" id="deckBar" hidden>
+      <button type="button" class="deck-back" id="backBtn" aria-label="Back to the last person" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>Back</button>
+      <span class="deck-count" id="deckCount" role="status"></span>
+    </div>
+    <div class="swipe-actions" hidden>
+      <div class="act">
+        <button type="button" class="round pass" id="passBtn" aria-label="Pass"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button>
+        <span class="act-cap" id="passCap" aria-hidden="true">Pass</span>
+      </div>
+      <div class="act">
+        <button type="button" class="round save" id="saveBtn" aria-label="Save for later"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bookmark"/></svg></button>
+        <span class="act-cap" id="saveCap" aria-hidden="true">Save</span>
+      </div>
+      <div class="act">
+        <button type="button" class="round like" id="likeBtn" aria-label="Like"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg></button>
+        <span class="act-cap" id="likeCap" aria-hidden="true">Like</span>
+      </div>
+    </div>
+    <p class="discover-links" hidden>
+      <button type="button" class="link-btn" id="blockProfileBtn">Block this profile</button>
+      <button type="button" class="link-btn" id="reportProfileBtn">Report this profile</button>
+    </p>
+  </section>
+
+  <!-- MATCHES + CHAT -->
+  <section class="panel narrow" id="matchesPanel" aria-labelledby="matchesTitle">
+    <div class="panel-head" id="matchesHead">
+      <h1 id="matchesTitle" data-heading>Matches</h1>
+      <p>People who like you back. Say hello first.</p>
+    </div>
+    <div id="matchesList" class="match-list"></div>
+
+    <div id="pendingWrap" hidden>
+      <h2 class="sec-title" id="pendingTitle">Waiting for a reply</h2>
+      <p class="sec-note">People you liked who haven't liked you back yet. Changed your mind? Take the like back.</p>
+      <div id="pendingList" class="person-list" role="group" aria-labelledby="pendingTitle"></div>
+      <p class="fine" id="pendingMore" hidden>Showing your 50 most recent likes.</p>
+    </div>
+
+    <div id="chatView" role="region" aria-label="Chat">
+      <div class="chat-head">
+        <button type="button" class="icon-btn" id="backToMatches" aria-label="Back to matches"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg></button>
+        <span class="av" id="chatAvatar" role="img" aria-label=""></span>
+        <div class="chat-who"><strong id="chatWithName"></strong><span id="chatWithMeta"></span></div>
+        <button type="button" class="icon-btn" id="chatMenuBtn" aria-label="Chat options" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg></button>
+      </div>
+      <div class="chat-banner" id="chatBanner" role="note">
+        <span>🛡️ Keep it safe: never send money, codes or private photos, and meet in public.</span>
+        <button type="button" class="icon-btn small" id="chatBannerClose" aria-label="Dismiss safety tip"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-label="Messages"></div>
+      <div class="tray" id="icebreakerTray" hidden>
+        <div class="chips" id="icebreakerChips"></div>
+        <button type="button" class="link-btn" id="icebreakerMore">Show other ideas</button>
+      </div>
+      <form class="chat-form" id="chatForm" autocomplete="off">
+        <button type="button" class="icon-btn" id="icebreakerBtn" aria-label="Opener ideas" aria-expanded="false" aria-controls="icebreakerTray">💡</button>
+        <input id="chatInput" placeholder="Write a message" maxlength="1000" autocomplete="off" aria-label="Message">
+        <button type="submit" class="btn btn-gold">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ADMIRERS -->
+  <section class="panel narrow" id="admirersPanel" aria-labelledby="admirersTitle">
+    <div class="panel-head">
+      <h1 id="admirersTitle" data-heading>Admirers</h1>
+      <p>These people liked you. Like back to match and start chatting.</p>
+    </div>
+    <div id="admirersList" class="person-list"></div>
+  </section>
+
+  <!-- SAVED -->
+  <section class="panel narrow" id="savedPanel" aria-labelledby="savedTitle">
+    <div class="panel-head">
+      <h1 id="savedTitle" data-heading>Saved</h1>
+      <p>Your shortlist. Like someone when you're ready, or remove them.</p>
+    </div>
+    <div id="savedList" class="person-list"></div>
+  </section>
+
+  <!-- ICEBREAKERS -->
+  <section class="panel narrow" id="icebreakersPanel" aria-labelledby="iceTitle">
+    <div class="panel-head">
+      <h1 id="iceTitle" data-heading>Icebreakers</h1>
+      <p>Pick an opener, copy it, and make it yours.</p>
+    </div>
+    <div class="surface spin">
+      <div><h2>Can't decide?</h2><p>Get a random opener.</p></div>
+      <button type="button" class="btn btn-gold" id="spinBtn">Surprise me</button>
+      <div class="spin-result" id="spinResult" hidden>
+        <p></p>
+        <button type="button" class="btn small ghost" id="spinCopy">Copy</button>
+      </div>
+    </div>
+    <h2 class="sec-title">Browse by topic</h2>
+    <div class="chips" id="icebreakerCats" role="group" aria-label="Opener topics"></div>
+    <ul class="opener-list" id="icebreakerList" style="margin-top:14px"></ul>
+
+    <h2 class="sec-title">For one of your matches</h2>
+    <div class="surface" id="forMatchEmpty" hidden>
+      <p class="muted">Match with someone and you'll get openers based on what you have in common.</p>
+      <div class="actions"><button type="button" class="btn small btn-gold" data-go="discover">Browse profiles</button></div>
+    </div>
+    <div id="forMatchBody" hidden>
+      <div class="for-match-bar">
+        <label for="icebreakerFor">Pick a match</label>
+        <select id="icebreakerFor"></select>
+        <button type="button" class="btn small ghost" id="forMatchShuffle">Shuffle</button>
+      </div>
+      <ul class="opener-list" id="forMatchList"></ul>
+    </div>
+  </section>
+
+  <!-- DATE IDEAS -->
+  <section class="panel narrow" id="datesPanel" aria-labelledby="datesTitle">
+    <div class="panel-head">
+      <h1 id="datesTitle" data-heading>Date ideas</h1>
+      <p>Places around Mombasa, sorted by vibe. Open one in Maps for directions, hours and prices.</p>
+    </div>
+    <div class="chips" id="dateFilters" role="group" aria-label="Filter by vibe" style="margin-bottom:16px"></div>
+    <div class="idea-list" id="dateList"></div>
+    <p class="fine" style="margin-top:14px">For a first date, pick a public place and tell a friend where you'll be.</p>
+  </section>
+
+  <!-- BIO BUILDER -->
+  <section class="panel narrow" id="bioPanel" aria-labelledby="bioTitle">
+    <div class="panel-head">
+      <h1 id="bioTitle" data-heading>Bio builder</h1>
+      <p>Answer a few questions and get three bios to start from. Edit them however you like.</p>
+    </div>
+    <form class="surface" id="bioForm">
+      <div class="field">
+        <label for="bioVibe">Your vibe</label>
+        <select id="bioVibe">
+          <option value="chill">Chill</option>
+          <option value="adventurous">Adventurous</option>
+          <option value="funny">Funny</option>
+          <option value="ambitious">Ambitious</option>
+          <option value="romantic">Romantic</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="bioLooking">What are you looking for?</label>
+        <select id="bioLooking">
+          <option value="friends">New friends</option>
+          <option value="casual">Something casual</option>
+          <option value="relationship">A relationship</option>
+          <option value="open" selected>Open to seeing what happens</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="field-label" id="bioInterestsLabel">Pick up to 4 interests</span>
+        <div class="interest-grid" id="bioInterests" role="group" aria-labelledby="bioInterestsLabel" style="margin-bottom:0"></div>
+      </div>
+      <div class="field">
+        <label for="bioExtra">Anything else to include? (optional)</label>
+        <input id="bioExtra" maxlength="140" placeholder="e.g. Always hunting for the best mandazi">
+      </div>
+      <button type="submit" class="btn btn-gold">Write my bios</button>
+    </form>
+    <div class="bio-toolbar"><button type="button" class="btn small ghost" id="bioShuffle" hidden>Shuffle the wording</button></div>
+    <div id="bioResults"></div>
+  </section>
+
+  <!-- DATE CHECK-IN -->
+  <section class="panel narrow" id="checkinPanel" aria-labelledby="checkinTitle">
+    <div class="panel-head">
+      <h1 id="checkinTitle" data-heading>Date check-in</h1>
+      <p>Write one message for a friend: who you're meeting, where and when.</p>
+    </div>
+    <div class="surface">
+      <div class="field"><label for="ciName">Who are you meeting?</label><input id="ciName" maxlength="60" placeholder="Their name" autocomplete="off"></div>
+      <div class="field"><label for="ciPlace">Where?</label><input id="ciPlace" maxlength="100" placeholder="e.g. Mama Ngina Waterfront" autocomplete="off"></div>
+      <div class="field"><label for="ciWhen">When?</label><input id="ciWhen" type="datetime-local"></div>
+      <div class="field" style="margin-bottom:0"><label for="ciFriend">Your friend's name (optional)</label><input id="ciFriend" maxlength="40" autocomplete="off"></div>
+    </div>
+    <div class="surface">
+      <h2>Your message</h2>
+      <pre class="msg-preview" id="ciPreview"></pre>
+      <div class="actions">
+        <a class="btn btn-gold" id="ciWhatsApp" href="https://wa.me/" target="_blank" rel="noopener noreferrer">Send on WhatsApp</a>
+        <button type="button" class="btn ghost" id="ciCopy">Copy message</button>
+        <button type="button" class="btn ghost" id="ciShare">Share</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCAM CHECK -->
+  <section class="panel narrow" id="scamPanel" aria-labelledby="scamTitle">
+    <div class="panel-head">
+      <h1 id="scamTitle" data-heading>Scam check</h1>
+      <p>Paste a message you received to look for common warning signs.</p>
+    </div>
+    <div class="surface">
+      <div class="field" style="margin-bottom:0">
+        <label for="scamInput">The message</label>
+        <textarea id="scamInput" rows="6" maxlength="2000" placeholder="Paste the message here"></textarea>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-gold" id="scamBtn">Check message</button>
+        <button type="button" class="btn ghost" id="scamClear">Clear</button>
+      </div>
+    </div>
+    <div class="scam-result" id="scamResult" role="status" hidden></div>
+    <p class="fine" style="margin-top:14px">This is a keyword check, not a guarantee. It can miss scams and can flag honest messages. Nothing you paste here is saved or sent anywhere.</p>
+  </section>
+
+  <!-- SAFETY -->
+  <section class="panel narrow" id="safetyPanel" aria-labelledby="safetyTitle">
+    <div class="panel-head">
+      <h1 id="safetyTitle" data-heading>Safety</h1>
+      <p>Quick help, tips for meeting up, and the people you've blocked.</p>
+    </div>
+    <div class="surface">
+      <h2>In danger? Call now</h2>
+      <div class="sos-row">
+        <a class="sos" href="tel:999"><span>Police</span><b>999</b></a>
+        <a class="sos" href="tel:112"><span>Emergency</span><b>112</b></a>
+        <a class="sos" href="tel:1195"><span>GBV helpline</span><b>1195</b></a>
+      </div>
+      <p class="fine">1195 is Kenya's national helpline for gender-based violence. The call is free.</p>
+    </div>
+    <div class="surface">
+      <h2>Before you meet someone</h2>
+      <ul class="tips">
+        <li>Meet in a busy public place, in daylight if you can.</li>
+        <li>Tell a friend who you're meeting, where and when. The check-in tool writes the message for you.</li>
+        <li>Arrange your own way there and back.</li>
+        <li>Don't share your home address, room number or timetable early on.</li>
+        <li>Never send money, airtime or M-Pesa codes to someone you haven't met, whatever the reason.</li>
+        <li>If something feels wrong, leave. You don't owe anyone an explanation.</li>
+      </ul>
+      <div class="actions">
+        <button type="button" class="btn btn-gold small" data-go="checkin">Write a check-in message</button>
+        <button type="button" class="btn ghost small" data-go="scam">Check a message</button>
+      </div>
+    </div>
+    <div class="surface">
+      <h2>People you've blocked</h2>
+      <div id="blockedList"></div>
+    </div>
+    <form class="surface" id="fbForm">
+      <h2>Tell us something</h2>
+      <div class="field">
+        <label for="fbTopic">What is it about?</label>
+        <select id="fbTopic">
+          <option value="problem">Something isn't working</option>
+          <option value="idea">An idea for TUMingle</option>
+          <option value="safety">A safety concern</option>
+          <option value="other">Something else</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="fbText">Your message</label>
+        <textarea id="fbText" rows="4" maxlength="600" placeholder="Tell us what happened or what you'd like to see"></textarea>
+      </div>
+      <button type="submit" class="btn btn-gold" id="fbSend">Send</button>
+      <p class="fine">To report a person, open their profile in Discover or the menu in a chat. Reports and feedback are private.</p>
+    </form>
+  </section>
+
+  <!-- PROFILE -->
+  <section class="panel narrow" id="profilePanel" aria-labelledby="profName">
+    <div id="profileMsg" class="msg" role="status"></div>
+
+    <div class="surface prof-head">
+      <div class="ring" id="profRing" style="--p:0">
+        <span class="av xl" id="profAvatar" role="img" aria-label="Your photo"></span>
+        <span class="ring-pct" id="profPct" title="Profile strength">0%</span>
+      </div>
+      <div class="prof-who">
+        <h1 id="profName" data-heading>Your profile</h1>
+        <p id="profMeta"></p>
+        <div class="actions">
+          <button type="button" class="btn small ghost" id="previewProfileBtn">Preview</button>
+          <button type="button" class="btn small ghost" id="inviteBtn">Invite a friend</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface" id="profChecklistWrap" hidden>
+      <h2>Finish your profile</h2>
+      <ul class="checklist" id="profChecklist"></ul>
+    </div>
+
+    <div class="surface">
+      <h2>Photos</h2>
+      <div class="photo-grid" id="photoGrid"></div>
+      <p class="fine">Tap + to add a photo. Tap a photo to make it your primary. Up to 6 photos. Their location and phone details are removed before they upload. Everyone on TUMingle can see them.</p>
+      <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/webp" hidden>
+    </div>
+
+    <form class="surface" id="profileForm" autocomplete="off">
+      <h2>About you</h2>
+      <div class="field"><label for="pf_displayName">Display name</label><input id="pf_displayName" name="displayName" maxlength="40" autocomplete="nickname"></div>
+      <div class="row">
+        <div class="field"><label for="pf_age">Age</label><input id="pf_age" name="age" type="number" inputmode="numeric" min="18" max="100"></div>
+        <div class="field">
+          <label for="pf_gender">Gender</label>
+          <select id="pf_gender" name="gender">
+            <option value="">Select</option>
+            <option value="Woman">Woman</option>
+            <option value="Man">Man</option>
+            <option value="Non-binary">Non-binary</option>
+            <option value="Prefer not to say">Prefer not to say</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="pf_preference">Interested in</label>
+        <select id="pf_preference" name="preference">
+          <option value="Everyone">Everyone</option>
+          <option value="Women">Women</option>
+          <option value="Men">Men</option>
+        </select>
+      </div>
+      <div class="field"><label for="pf_course">Course</label><input id="pf_course" name="course" maxlength="100" placeholder="e.g. BSc Computer Science"></div>
+      <div class="field"><label for="profileDept">Department</label><select id="profileDept" name="department"></select></div>
+      <div class="field">
+        <label for="pf_year">Year of study</label>
+        <input id="pf_year" name="year" maxlength="40" list="yearOptions" placeholder="e.g. Year 2">
+        <datalist id="yearOptions"><option value="Year 1"></option><option value="Year 2"></option><option value="Year 3"></option><option value="Year 4"></option><option value="Year 5"></option><option value="Postgraduate"></option></datalist>
+      </div>
+      <div class="field">
+        <label for="pf_bio">Bio</label>
+        <textarea id="pf_bio" name="bio" maxlength="500" placeholder="A few lines about you. The Bio builder can help."></textarea>
+        <span class="field-count" id="bioCount">0/500</span>
+      </div>
+      <button type="submit" class="btn btn-gold" id="profileSave" style="width:100%">Save profile</button>
+    </form>
+
+    <div class="surface">
+      <h2>Interests</h2>
+      <p class="fine" style="margin-bottom:12px">Pick up to 12. They help find people you have things in common with.</p>
+      <div class="interest-grid" id="interestGrid"></div>
+      <button type="button" class="btn small btn-gold" id="saveInterestsBtn">Save interests</button>
+    </div>
+
+    <div class="surface" id="pushCard">
+      <h2>Notifications</h2>
+      <div class="push-box" id="pushBox">
+        <p class="muted" style="margin-bottom:12px">Get notified when someone likes you back or sends a message.</p>
+        <button type="button" class="btn small ghost" id="enablePushBtn">Turn on notifications</button>
+        <p class="fine" id="iosPushNote" style="display:none;margin-top:10px">On iPhone: add TUMingle to your Home Screen first (Share, then Add to Home Screen), then open it from there to turn on notifications.</p>
+      </div>
+    </div>
+
+    <div class="surface">
+      <h2>Account</h2>
+      <p class="muted">Signed in as <b id="accountEmail"></b></p>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="logoutBtn2">Log out</button>
+        <button type="button" class="btn ghost" id="resetPassesBtn">Clear passed profiles</button>
+        <button type="button" class="btn ghost warn" id="deleteAccountBtn">Delete my account</button>
+      </div>
+      <p class="fine" style="margin-top:12px">Deleting your account removes your profile, likes, matches and chats for good.</p>
+    </div>
+  </section>
+</main>
+
+<!-- ===================================================================
+     DIALOGS, TOASTS, FLOATING BUTTON
+     =================================================================== -->
+<dialog id="uiDialog" aria-labelledby="uiTitle" aria-describedby="uiBody">
+  <form method="dialog" class="dlg">
+    <h2 id="uiTitle"></h2>
+    <p id="uiBody"></p>
+    <textarea id="uiInput" rows="4" hidden aria-labelledby="uiTitle"></textarea>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="uiCancel" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn btn-gold" id="uiOk" value="ok">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="deleteAccountDialog" aria-labelledby="delTitle" aria-describedby="delBody">
+  <form class="dlg" id="deleteAccountForm" novalidate>
+    <h2 id="delTitle">Delete your account?</h2>
+    <p id="delBody">This permanently deletes your profile, photos, likes, matches and chats, and removes your login. It can't be undone.</p>
+    <div class="field">
+      <label for="delPassword">Enter your password to confirm</label>
+      <input id="delPassword" type="password" autocomplete="current-password" maxlength="200">
+    </div>
+    <p class="msg" id="delMsg" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="delCancel">Cancel</button>
+      <button type="submit" class="btn danger" id="delConfirm">Delete my account</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="matchDialog" class="match" aria-labelledby="matchTitle">
+  <div class="dlg">
+    <div class="match-avatars" id="matchAvatars"></div>
+    <h2 id="matchTitle">It's a match!</h2>
+    <p id="matchSub"></p>
+    <div class="dlg-actions col">
+      <button type="button" class="btn btn-gold" id="matchSayHi">Say hi</button>
+      <button type="button" class="btn ghost" id="matchKeep">Keep browsing</button>
+      <button type="button" class="link-btn" id="matchUndo">Undo like</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="profileDialog" class="pd" aria-label="Profile">
+  <div class="pd-bar">
+    <strong>Profile</strong>
+    <button type="button" class="icon-btn small" id="pdClose" aria-label="Close profile"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="pdBody"></div>
+  <div class="dlg-actions" id="pdActions"></div>
+</dialog>
+
+<dialog id="chatMenuSheet" class="sheet" aria-label="Chat options">
+  <div class="dlg">
+    <div class="sheet-grab" aria-hidden="true"></div>
+    <div class="sheet-list" style="margin-top:0">
+      <button type="button" class="btn ghost" id="menuViewProfile">View profile</button>
+      <button type="button" class="btn ghost" id="menuReport">Report</button>
+      <button type="button" class="btn ghost" id="menuBlock">Block</button>
+      <button type="button" class="btn danger" id="unmatchBtn">Unmatch</button>
+      <button type="button" class="btn ghost" data-close>Close</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="quickSheet" class="sheet" aria-labelledby="qsTitle">
+  <div class="dlg">
+    <div class="sheet-grab" aria-hidden="true"></div>
+    <h2 id="qsTitle">Safety help</h2>
+    <p>If you're in danger, call now.</p>
+    <div class="sos-row" style="margin-top:14px">
+      <a class="sos" href="tel:999"><span>Police</span><b>999</b></a>
+      <a class="sos" href="tel:112"><span>Emergency</span><b>112</b></a>
+      <a class="sos" href="tel:1195"><span>GBV helpline</span><b>1195</b></a>
+    </div>
+    <div class="sheet-list">
+      <button type="button" class="btn ghost" data-go="checkin">📍 Write a check-in message</button>
+      <button type="button" class="btn ghost" data-go="scam">🔍 Check a message for scams</button>
+      <button type="button" class="btn ghost" data-go="safety">🛡️ Safety tips and blocked list</button>
+      <button type="button" class="btn ghost" data-close>Close</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+<button type="button" class="fab" id="fab" aria-label="Safety help" aria-haspopup="dialog">🛡️</button>
+
+<script data-tm="boot">
+/* Landing loader (inline in the page, tiny). The landing page is plain HTML and CSS and works on its own.
+   This only decides whether to fetch landing.js, which adds the scroll motion (and, on capable phones and
+   computers, landing3d.js with the WebGL heart). The signed-in app never fetches either file. */
+(function () {
+  var L = document.getElementById("landing");
+  if (!L) return;
+  var wanted = false, loading = false;
+
+  function reduced() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  function lowPower() {
+    var c = navigator.connection || {};
+    return reduced() || !!c.saveData || /(^|-)2g$/.test(c.effectiveType || "");
+  }
+  function load(src, done) {
+    var s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = function () { done(null); };
+    s.onerror = function () { done(new Error("load")); };
+    document.head.appendChild(s);
+  }
+  function start() {
+    wanted = true;
+    if (lowPower()) { L.setAttribute("data-tier", "1"); return; }
+    if (window.TMLanding) { window.TMLanding.start(L); return; }
+    if (loading) return;
+    loading = true;
+    load("landing.js", function (err) {
+      loading = false;
+      if (!err && window.TMLanding && wanted) window.TMLanding.start(L);
+    });
+  }
+  function stop() {
+    wanted = false;
+    if (window.TMLanding) window.TMLanding.stop();
+  }
+
+  // app.js announces which screen is showing: "landing", "auth" (login) or "app"
+  window.addEventListener("tm:screen", function (e) {
+    if (e.detail === "landing") start(); else stop();
+  });
+
+  // "See how it works" and similar buttons (work with or without landing.js)
+  document.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest("[data-lp-scroll]") : null;
+    if (!b) return;
+    var t = document.getElementById(b.getAttribute("data-lp-scroll"));
+    if (!t) return;
+    if (window.TMLanding && window.TMLanding.scrollTo) window.TMLanding.scrollTo(t);
+    else t.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
+  });
+
+  // First-time visitors see the landing at once: start after the page has loaded, so the page itself comes first.
+  // Devices that have signed in before wait for app.js to say which screen to show.
+  if (!document.documentElement.classList.contains("returning")) {
+    if (document.readyState === "complete") start();
+    else window.addEventListener("load", start);
+  }
+})();
+</script>
+<script src="firebase-init.js"></script>
+<script src="app-preview.js"></script>
+
+</body>
+</html>
