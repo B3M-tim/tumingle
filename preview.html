@@ -209,6 +209,16 @@ html:has(body.signed-in){color-scheme:dark;}
 /* Faint grid + soft golden glow, fading out down the page.
    This sits at z-index:-1, so it only shows if the page colour comes from body (and
    propagates to the canvas). Do not give <html> its own background or it hides this. */
+/* Moving 3D gold scene behind the app (added by the loader on capable devices; see landing_loader.js). It sits behind every
+   card, takes no clicks, and the middle is dimmed a little so text stays easy to read. */
+#appBg{
+  position:fixed; inset:0; width:100%; height:100%; z-index:-1; pointer-events:none; opacity:0; transition:opacity 1s ease;
+  -webkit-mask-image:radial-gradient(ellipse 52% 70% at 50% 46%, rgba(0,0,0,.2), #000 100%);
+          mask-image:radial-gradient(ellipse 52% 70% at 50% 46%, rgba(0,0,0,.2), #000 100%);
+}
+#appBg.on{opacity:.85;}
+body:not(.signed-in) #appBg{display:none;}
+@media (max-width:700px){ #appBg.on{opacity:.8;} }
 body.signed-in::before{
   content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
   background:
@@ -994,13 +1004,19 @@ body.in-chat .fab{display:none;}
   body.signed-in .saved-pill{padding:0 8px 0 11px;}
 }
 @media (min-width:900px){
+  /* Wide enough for the menu to sit centred on its own row under the logo */
+  body.signed-in #mainNav{justify-content:center; margin:0; padding:2px 0 10px; overflow:visible; -webkit-mask-image:none; mask-image:none;}
+  body.signed-in .topbar{padding:calc(10px + env(safe-area-inset-top, 0px)) 28px 0;}
+  body.signed-in .status-pill, body.signed-in .status-pill.ok{display:inline-block;}
+  #appScreen{padding-top:30px;}
+}
+@media (min-width:1240px){
+  /* Wide enough for logo, menu and buttons on a single row */
   body.signed-in .topbar{
     grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"brand nav right";
     gap:0 24px; padding:0 28px; min-height:70px;
   }
-  body.signed-in #mainNav{justify-content:center; margin:0; padding:0; overflow:visible; -webkit-mask-image:none; mask-image:none;}
-  body.signed-in .status-pill, body.signed-in .status-pill.ok{display:inline-block;}
-  #appScreen{padding-top:30px;}
+  body.signed-in #mainNav{padding:0;}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -2139,9 +2155,59 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     if (window.TMLanding) window.TMLanding.stop();
   }
 
+  // ---- The moving 3D gold background behind the signed-in app (capable devices only, never reduced motion) ----
+  var appWanted = false, appLoading = false, appHandle = null, appTimer = 0, appCanvas = null;
+  function canGL() {
+    try {
+      var c = document.createElement("canvas"), gl = c.getContext("webgl2");
+      if (!gl) return false;
+      var x = gl.getExtension("WEBGL_lose_context"); if (x) x.loseContext();
+      return true;
+    } catch (e) { return false; }
+  }
+  function capable() {
+    if (lowPower()) return false;
+    var n = navigator.connection || {};
+    if (n.effectiveType && n.effectiveType !== "4g") return false;
+    if (n.downlink && n.downlink < 1.5) return false;
+    return (navigator.deviceMemory || 4) >= 4 && (navigator.hardwareConcurrency || 4) >= 4 && canGL();
+  }
+  function coarse() { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
+  function runApp() {
+    if (!appWanted || appHandle || !window.TMApp3D) return;
+    appCanvas = document.createElement("canvas");
+    appCanvas.id = "appBg"; appCanvas.setAttribute("aria-hidden", "true");
+    document.body.insertBefore(appCanvas, document.body.firstChild);
+    var cv = appCanvas;
+    appHandle = window.TMApp3D.start(cv, {
+      coarse: coarse(),
+      onReady: function () { cv.classList.add("on"); },
+      onFail: function () { stopApp(); }
+    });
+  }
+  function startApp() {
+    appWanted = true;
+    if (appHandle || appLoading || appTimer) return;
+    // Let the app become usable first, then fetch the 3D file in a quiet moment
+    appTimer = window.setTimeout(function () {
+      appTimer = 0;
+      if (!appWanted || !capable()) return;
+      if (window.TMApp3D) { runApp(); return; }
+      appLoading = true;
+      load("landing3d.js", function () { appLoading = false; runApp(); });
+    }, 1200);
+  }
+  function stopApp() {
+    appWanted = false;
+    if (appTimer) { clearTimeout(appTimer); appTimer = 0; }
+    if (appHandle) { try { appHandle.stop(); } catch (e) {} appHandle = null; }
+    if (appCanvas) { if (appCanvas.parentNode) appCanvas.parentNode.removeChild(appCanvas); appCanvas = null; }
+  }
+
   // app.js announces which screen is showing: "landing", "auth" (login) or "app"
   window.addEventListener("tm:screen", function (e) {
     if (e.detail === "landing") start(); else stop();
+    if (e.detail === "app") startApp(); else stopApp();
   });
 
   // "See how it works" and similar buttons (work with or without landing.js)
