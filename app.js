@@ -383,17 +383,29 @@ function setAuthStatus(text, cls) {
   el.textContent = text;
   el.className = "status-pill" + (cls ? " " + cls : "");
 }
+// Which screen is showing: "landing" (the front page for signed-out visitors), "auth" (the login box) or "app".
+// The landing page is an optional layer: without #landing in the page, signed-out visitors go straight to the login box.
+let screenNow = "landing";
+let loginRequested = false;   // the person pressed Join / Log in on the landing page (or the login box has something to say)
 function showScreen(which) {
+  if (which === "landing" && !document.getElementById("landing")) which = "auth";
+  const changed = which !== screenNow;
+  screenNow = which;
   document.getElementById("authScreen").style.display = which === "auth" ? "block" : "none";
   document.getElementById("appScreen").style.display = which === "app" ? "block" : "none";
-  document.getElementById("logoutBtn").style.display = which === "auth" ? "none" : "inline-flex";
-  // CSS hooks: the signed-in theme (paper background, nav strip, Saved pill,
+  document.getElementById("logoutBtn").style.display = which === "app" ? "inline-flex" : "none";
+  // CSS hooks: the signed-in theme (dark gold background, nav strip, Saved pill,
   // floating safety button) only applies while this class is present.
   document.body.classList.toggle("signed-in", which === "app");
+  document.body.classList.toggle("on-landing", which === "landing");
   // Auth state is known now, so the login box may show (see body.booting in index.html).
   document.body.classList.remove("booting");
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.setAttribute("content", which === "app" ? "#0B1020" : "#F6F3EC");
+  if (themeMeta) themeMeta.setAttribute("content", which === "auth" ? "#F6F3EC" : "#090909");
+  if (which !== "auth") loginRequested = false;
+  if (changed && which !== "app") window.scrollTo(0, 0);
+  // landing.js (motion on the landing page) listens for this; it is never loaded once someone is signed in
+  window.dispatchEvent(new CustomEvent("tm:screen", { detail: which }));
   // Don't leave the previous attempt behind. The password is never kept in the page once
   // someone is in (or has just logged out of) the app, which matters on shared lab computers,
   // and an old "Incorrect email or password" must not reappear after a later logout.
@@ -441,7 +453,8 @@ async function initFirebase() {
       currentUser = null; idToken = null; myProfile = null;
       if (appEntered) clearPrivateScreens();   // after the memory is empty, so nothing is redrawn from it
       setAuthStatus("Logged out");
-      showScreen("auth");
+      try { localStorage.removeItem("tm_in"); } catch (e) { /* storage blocked: the landing page just waits a moment longer next time */ }
+      showScreen(loginRequested || authNotice ? "auth" : "landing");
       flushAuthNotice();
       return;
     }
@@ -513,6 +526,7 @@ async function startSession(user) {
     }
     myProfile = normalizeProfile(profile);
     setAuthStatus(myProfile.displayName || user.email, "ok");
+    try { localStorage.setItem("tm_in", "1"); } catch (e) { /* storage blocked: no early hint, nothing else changes */ }
     showScreen("app");
     enterApp();
   } catch (e) {
@@ -592,6 +606,24 @@ function populateDeptSelect(selectEl) {
 // email/password combination doesn't match an existing account — see the
 // loginBtn handler. Anything collected on the old signup form (course,
 // department, bio...) is now filled in later from the Profile tab instead.
+// Landing page buttons. "Join" and "Log in" open the login box exactly as it is; Back (or the logo) returns to the landing page.
+function wireLanding() {
+  document.querySelectorAll("[data-lp-login]").forEach(b => b.addEventListener("click", () => {
+    loginRequested = true;
+    showScreen("auth");
+    try { history.pushState({ tmLogin: 1 }, "", location.href); } catch (e) { /* history blocked: the logo still goes back */ }
+  }));
+  window.addEventListener("popstate", () => {
+    if (screenNow === "auth" && !currentUser && !(history.state && history.state.tmLogin)) { loginRequested = false; showScreen("landing"); }
+  });
+  const brand = document.getElementById("brandLink");
+  if (brand) brand.addEventListener("click", (e) => {
+    if (screenNow !== "auth") return;
+    e.preventDefault(); e.stopPropagation();
+    loginRequested = false; showScreen("landing");
+  }, true);
+}
+
 function wireAuthScreen() {
   // Single box: email + password, no separate "sign up" screen. First time
   // a TUM email is used, there's no account yet, so Firebase Auth rejects
@@ -608,6 +640,10 @@ function wireAuthScreen() {
     const email = clean(document.getElementById("loginEmail").value, 150).toLowerCase();
     const password = document.getElementById("loginPassword").value;
     if (!email || !password) return showMsg("authMsg", "Enter your email and password.", "err");
+    // The landing page can open this box before the sign-in service has finished loading (slow connection)
+    if (!window.__fbAuthMod || !auth) return showMsg("authMsg", fbInitFailed
+      ? "Couldn't load the sign-in service. Check your connection, then reload this page."
+      : "Still connecting to the sign-in service. Wait a moment, then try again.", fbInitFailed ? "err" : "info");
 
     const btn = document.getElementById("loginBtn");
     btn.disabled = true;
@@ -1294,7 +1330,7 @@ function profileCardHTML(u, c, opts = {}) {
       ${first ? `<span class="sr-only">${esc("Photo of " + u.displayName)}</span>` : `<div class="initial" aria-hidden="true">${esc(initialsOf(u.displayName))}</div><div class="no-photo-note">No photo yet</div>`}
       ${dots}${zones}${likes}${badge}${stamps}
       <div class="photo-grad">
-        <h3>${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
+        <h3 aria-level="2">${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
         <p>${esc(u.department || "Department not set")}</p>
       </div>
     </div>
@@ -1334,7 +1370,7 @@ function renderStack(opts = {}) {
     stack.innerHTML = `
       <div class="empty-state big">
         <div class="empty-emoji" aria-hidden="true">🌴</div>
-        <h3>No one to show yet</h3>
+        <h3 aria-level="2">No one to show yet</h3>
         <p>New people show up as more students join. Invite a friend to get things moving, or check back later.</p>
         <div class="empty-actions">
           <button class="btn btn-gold" id="emptyInvite">Invite a friend</button>
@@ -1363,6 +1399,7 @@ function renderStack(opts = {}) {
     if (isTop) {
       card.setAttribute("aria-label", `${u.displayName}. ${RELATION_TEXT[rel] ? RELATION_TEXT[rel] + ". " : ""}Use the buttons below, or the left and right arrow keys, to pass or like.`);
       attachDrag(card, u);
+      attachTilt(card, 6);
     }
     stack.appendChild(card);
   });
@@ -1411,6 +1448,45 @@ function refreshDeckLabels() {
   if (discoverQueue.length) updateDeckControls();
 }
 
+// 3D tilt for mouse users: a card leans toward the pointer. It only sets the individual `rotate` property and two
+// CSS variables, so `transform` stays free for the swipe drag. Touch screens and reduced motion skip it entirely.
+function tiltAllowed() {
+  return !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches) && !prefersReducedMotion();
+}
+function attachTilt(el, max) {
+  if (!tiltAllowed()) return;
+  el.classList.add("tilt-on");
+  let raf = 0, pt = null;
+  const paint = () => {
+    raf = 0;
+    if (!pt) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const px = Math.max(-1, Math.min(1, ((pt.x - r.left) / r.width) * 2 - 1));
+    const py = Math.max(-1, Math.min(1, ((pt.y - r.top) / r.height) * 2 - 1));
+    const deg = Math.min(1, Math.hypot(px, py)) * max;
+    el.style.rotate = `${(-py).toFixed(3)} ${px.toFixed(3)} 0 ${deg.toFixed(2)}deg`;
+    el.style.setProperty("--gx", (((px + 1) * 50).toFixed(1)) + "%");
+    el.style.setProperty("--gy", (((py + 1) * 50).toFixed(1)) + "%");
+  };
+  const rest = (animate) => {
+    pt = null;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    const was = el.style.rotate;
+    el.classList.remove("tilting");
+    el.style.rotate = "";
+    if (animate && was && el.animate) { try { el.animate({ rotate: [was, "0 0 1 0deg"] }, { duration: 240, easing: "ease-out" }); } catch (_) {} }
+  };
+  el.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse" || e.buttons) return;
+    pt = { x: e.clientX, y: e.clientY };
+    el.classList.add("tilting");
+    if (!raf) raf = requestAnimationFrame(paint);
+  });
+  el.addEventListener("pointerleave", () => rest(true));
+  el.addEventListener("pointerdown", () => rest(false));
+}
+
 function attachDrag(card, user) {
   const likeStamp = card.querySelector(".stamp.like");
   const nopeStamp = card.querySelector(".stamp.nope");
@@ -1427,6 +1503,7 @@ function attachDrag(card, user) {
     dx = e.clientX - startX;
     if (!moved && Math.abs(dx) > 6) {
       moved = true;
+      card.classList.add("dragging");
       try { card.setPointerCapture(pid); } catch (_) {}
     }
     if (!moved) return;
@@ -1438,6 +1515,7 @@ function attachDrag(card, user) {
   const end = (e) => {
     if (!dragging || (e && e.pointerId !== pid)) return;
     dragging = false;
+    card.classList.remove("dragging");
     if (!moved) return;
     ignoreClickUntil = Date.now() + 120; // swallow the click that follows a drag
     if (dx > threshold || dx < -threshold) {
@@ -1906,7 +1984,7 @@ async function loadMatches() {
       list.innerHTML = `
         <div class="empty-state big">
           <div class="empty-emoji" aria-hidden="true">💘</div>
-          <h3>No matches yet</h3>
+          <h3 aria-level="2">No matches yet</h3>
           <p>A match happens when you and someone else like each other. Keep browsing, or answer the people who already like you.</p>
           <div class="empty-actions">
             <button class="btn btn-gold" data-go="discover">Browse profiles</button>
@@ -1922,8 +2000,11 @@ async function loadMatches() {
         row.className = "match-row";
         row.innerHTML = `${avatarHTML(u, "lg")}
           <span class="match-main"><span class="nm">${esc(u.displayName)}</span><span class="dp">${esc(u.department || "Department not set")}</span></span>
-          ${at ? `<span class="match-when">Matched ${esc(relTime(new Date(at).toISOString()))}</span>` : ""}`;
+          ${at && Date.now() - at < 48 * 3600 * 1000 ? `<span class="match-new">New</span>` : ""}
+          ${at ? `<span class="match-when">Matched ${esc(relTime(new Date(at).toISOString()))}</span>` : ""}
+          <svg class="match-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>`;
         row.onclick = () => openChat(u);
+        attachTilt(row, 2);
         list.appendChild(row);
       });
     }
@@ -2188,12 +2269,13 @@ function personCard(u, kind) {
   el.innerHTML = `
     <button type="button" class="person-photo" aria-label="View ${esc(u.displayName)}'s profile"${photo ? ` style="background-image:url('${photo}')"` : ""}>${photo ? "" : esc(initialsOf(u.displayName))}</button>
     <div class="person-main">
-      <h3>${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
+      <h3 aria-level="2">${esc(u.displayName)}${u.age ? `, ${esc(u.age)}` : ""}</h3>
       <p class="dept">${esc(u.department || "Department not set")}</p>
       <p class="why">${c.pct > 0 ? `<b class="pct">${c.pct}% match</b> ` : ""}${esc(whyLine(c))}</p>
       ${when ? `<p class="when">You liked them ${esc(when)}.</p>` : ""}
       <div class="person-actions"></div>
     </div>`;
+  attachTilt(el, 3);
   const actions = el.querySelector(".person-actions");
   const mk = (label, cls, fn) => {
     const b = document.createElement("button");
@@ -2240,7 +2322,7 @@ async function renderAdmirers() {
     list.innerHTML = `
       <div class="empty-state big">
         <div class="empty-emoji" aria-hidden="true">💌</div>
-        <h3>No admirers waiting</h3>
+        <h3 aria-level="2">No admirers waiting</h3>
         <p>When someone likes you, they show up here. A complete profile with a photo is the best way to get noticed.</p>
         <div class="empty-actions">
           <button class="btn btn-gold" data-go="profile">Improve my profile</button>
@@ -2297,7 +2379,7 @@ async function renderSaved() {
     list.innerHTML = `
       <div class="empty-state big">
         <div class="empty-emoji" aria-hidden="true">🔖</div>
-        <h3>Nothing saved yet</h3>
+        <h3 aria-level="2">Nothing saved yet</h3>
         <p>Tap the bookmark under a profile in Discover to set someone aside and decide later.</p>
         <div class="empty-actions"><button class="btn btn-gold" data-go="discover">Browse profiles</button></div>
       </div>`;
@@ -2681,7 +2763,7 @@ function renderDates() {
     el.className = "idea";
     const maps = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(d.q);
     el.innerHTML = `
-      <div class="idea-top"><h3>${esc(d.title)}</h3><span class="idea-area">${esc(d.area)}</span></div>
+      <div class="idea-top"><h3 aria-level="2">${esc(d.title)}</h3><span class="idea-area">${esc(d.area)}</span></div>
       <p>${esc(d.blurb)}</p>
       <div class="tag-row">${d.vibes.map(v => `<span class="tag">${esc(DATE_VIBES[v])}</span>`).join("")}</div>
       <div class="idea-actions">
@@ -3403,10 +3485,13 @@ async function sendPushToUser(userId, payload) {
 // BOOT
 // ============================================================================
 wireAuthScreen();
+wireLanding();
 wirePhotoUpload();
 wireInterests();
+let fbInitFailed = false;
 initFirebase().catch(e => {
   console.error(e);
+  fbInitFailed = true;
   document.body.classList.remove("booting");
   // The usual cause is the phone: the sign-in service files come from Google's servers, and on a weak or blocked
   // connection they don't arrive. Only a placeholder config means the app really isn't set up.
@@ -3418,4 +3503,7 @@ initFirebase().catch(e => {
     setAuthStatus("Offline", "err");
     showMsg("authMsg", "Couldn't load the sign-in service. Check your connection, then reload this page.", "err");
   }
+  // Someone who signed in on this device before gets the login box with the message. A first-time visitor keeps the
+  // landing page, which needs nothing from Google's servers; the message is waiting in the login box.
+  if (document.documentElement.classList.contains("returning")) showScreen("auth");
 });
