@@ -1399,6 +1399,7 @@ function renderStack(opts = {}) {
     if (isTop) {
       card.setAttribute("aria-label", `${u.displayName}. ${RELATION_TEXT[rel] ? RELATION_TEXT[rel] + ". " : ""}Use the buttons below, or the left and right arrow keys, to pass or like.`);
       attachDrag(card, u);
+      attachTilt(card, 6);
     }
     stack.appendChild(card);
   });
@@ -1447,6 +1448,45 @@ function refreshDeckLabels() {
   if (discoverQueue.length) updateDeckControls();
 }
 
+// 3D tilt for mouse users: a card leans toward the pointer. It only sets the individual `rotate` property and two
+// CSS variables, so `transform` stays free for the swipe drag. Touch screens and reduced motion skip it entirely.
+function tiltAllowed() {
+  return !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches) && !prefersReducedMotion();
+}
+function attachTilt(el, max) {
+  if (!tiltAllowed()) return;
+  el.classList.add("tilt-on");
+  let raf = 0, pt = null;
+  const paint = () => {
+    raf = 0;
+    if (!pt) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const px = Math.max(-1, Math.min(1, ((pt.x - r.left) / r.width) * 2 - 1));
+    const py = Math.max(-1, Math.min(1, ((pt.y - r.top) / r.height) * 2 - 1));
+    const deg = Math.min(1, Math.hypot(px, py)) * max;
+    el.style.rotate = `${(-py).toFixed(3)} ${px.toFixed(3)} 0 ${deg.toFixed(2)}deg`;
+    el.style.setProperty("--gx", (((px + 1) * 50).toFixed(1)) + "%");
+    el.style.setProperty("--gy", (((py + 1) * 50).toFixed(1)) + "%");
+  };
+  const rest = (animate) => {
+    pt = null;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    const was = el.style.rotate;
+    el.classList.remove("tilting");
+    el.style.rotate = "";
+    if (animate && was && el.animate) { try { el.animate({ rotate: [was, "0 0 1 0deg"] }, { duration: 240, easing: "ease-out" }); } catch (_) {} }
+  };
+  el.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse" || e.buttons) return;
+    pt = { x: e.clientX, y: e.clientY };
+    el.classList.add("tilting");
+    if (!raf) raf = requestAnimationFrame(paint);
+  });
+  el.addEventListener("pointerleave", () => rest(true));
+  el.addEventListener("pointerdown", () => rest(false));
+}
+
 function attachDrag(card, user) {
   const likeStamp = card.querySelector(".stamp.like");
   const nopeStamp = card.querySelector(".stamp.nope");
@@ -1463,6 +1503,7 @@ function attachDrag(card, user) {
     dx = e.clientX - startX;
     if (!moved && Math.abs(dx) > 6) {
       moved = true;
+      card.classList.add("dragging");
       try { card.setPointerCapture(pid); } catch (_) {}
     }
     if (!moved) return;
@@ -1474,6 +1515,7 @@ function attachDrag(card, user) {
   const end = (e) => {
     if (!dragging || (e && e.pointerId !== pid)) return;
     dragging = false;
+    card.classList.remove("dragging");
     if (!moved) return;
     ignoreClickUntil = Date.now() + 120; // swallow the click that follows a drag
     if (dx > threshold || dx < -threshold) {
@@ -2230,6 +2272,7 @@ function personCard(u, kind) {
       ${when ? `<p class="when">You liked them ${esc(when)}.</p>` : ""}
       <div class="person-actions"></div>
     </div>`;
+  attachTilt(el, 3);
   const actions = el.querySelector(".person-actions");
   const mk = (label, cls, fn) => {
     const b = document.createElement("button");
