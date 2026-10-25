@@ -2000,8 +2000,11 @@ async function loadMatches() {
         row.className = "match-row";
         row.innerHTML = `${avatarHTML(u, "lg")}
           <span class="match-main"><span class="nm">${esc(u.displayName)}</span><span class="dp">${esc(u.department || "Department not set")}</span></span>
-          ${at ? `<span class="match-when">Matched ${esc(relTime(new Date(at).toISOString()))}</span>` : ""}`;
+          ${at && Date.now() - at < 48 * 3600 * 1000 ? `<span class="match-new">New</span>` : ""}
+          ${at ? `<span class="match-when">Matched ${esc(relTime(new Date(at).toISOString()))}</span>` : ""}
+          <svg class="match-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>`;
         row.onclick = () => openChat(u);
+        attachTilt(row, 2);
         list.appendChild(row);
       });
     }
