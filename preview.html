@@ -218,7 +218,19 @@ html:has(body.signed-in){color-scheme:dark;}
 }
 #appBg.on{opacity:.85;}
 body:not(.signed-in) #appBg{display:none;}
-@media (max-width:700px){ #appBg.on{opacity:.8;} }
+@media (max-width:700px){
+  #appBg.on{opacity:.72;}
+  #appBg{
+    -webkit-mask-image:radial-gradient(ellipse 60% 70% at 50% 46%, rgba(0,0,0,.42), #000 100%);
+            mask-image:radial-gradient(ellipse 60% 70% at 50% 46%, rgba(0,0,0,.42), #000 100%);
+  }
+  /* Text that sits straight on the background (not on a card) gets a soft dark halo so it stays easy to read. */
+  body.bg3d .hero :is(h1, p, .hero-badge), body.bg3d .panel-head :is(h1, p){text-shadow:0 0 8px rgba(0,0,0,.9), 0 0 18px rgba(0,0,0,.85);}
+  /* On a phone the cards cover nearly the whole screen, so let the main ones be a little see-through while the
+     background is running. The text on them stays well above the contrast limit (checked by the test suite). */
+  body.bg3d .nudge, body.bg3d .tool, body.bg3d .stat, body.bg3d .empty-state, body.bg3d .match-row,
+  body.bg3d .person, body.bg3d .opener, body.bg3d .idea, body.bg3d .bio-option{background:rgba(20,20,20,.7);}
+}
 body.signed-in::before{
   content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
   background:
@@ -2165,12 +2177,23 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
       return true;
     } catch (e) { return false; }
   }
-  function capable() {
-    if (lowPower()) return false;
-    var n = navigator.connection || {};
-    if (n.effectiveType && n.effectiveType !== "4g") return false;
-    if (n.downlink && n.downlink < 1.5) return false;
-    return (navigator.deviceMemory || 4) >= 4 && (navigator.hardwareConcurrency || 4) >= 4 && canGL();
+  // Every phone with WebGL2 gets the background, except when the person asked for less motion or Data Saver, or is on 2G.
+  // Weaker phones (2 GB memory or fewer, or 4 cores or fewer) get a lighter version, and the scene itself watches its
+  // frame rate and backs off if the phone struggles.
+  function capable() { return !lowPower() && canGL(); }
+  function weak() {
+    return !!((navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4));
+  }
+  // Add ?bg=why to the address to see, on the screen, what the background is doing and why it didn't start.
+  var why = /[?&]bg=why(&|$)/.test(location.search), whyBox = null;
+  function say(t) {
+    if (!why || !document.body) return;
+    if (!whyBox) {
+      whyBox = document.createElement("div"); whyBox.id = "bgWhy";
+      whyBox.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,.88);color:#FFE8A3;font:13px/1.35 'Times New Roman',serif;padding:8px 10px;border:1px solid #FFD447;border-radius:8px;white-space:pre-wrap;pointer-events:none";
+      document.body.appendChild(whyBox);
+    }
+    whyBox.textContent += t + "\n";
   }
   function coarse() { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
   function runApp() {
@@ -2180,9 +2203,9 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     document.body.insertBefore(appCanvas, document.body.firstChild);
     var cv = appCanvas;
     appHandle = window.TMApp3D.start(cv, {
-      coarse: coarse(),
-      onReady: function () { cv.classList.add("on"); },
-      onFail: function () { stopApp(); }
+      coarse: coarse(), lite: weak(), say: say,
+      onReady: function () { cv.classList.add("on"); document.body.classList.add("bg3d"); say("background is on"); },
+      onFail: function () { say("background is off"); stopApp(); }
     });
   }
   function startApp() {
@@ -2191,10 +2214,19 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     // Let the app become usable first, then fetch the 3D file in a quiet moment
     appTimer = window.setTimeout(function () {
       appTimer = 0;
-      if (!appWanted || !capable()) return;
+      if (!appWanted) return;
+      var c = navigator.connection || {};
+      say("phone check: reduced motion " + (reduced() ? "yes" : "no") + ", Data Saver " + (c.saveData ? "yes" : "no") + ", connection " + (c.effectiveType || "unknown") +
+        ", memory " + (navigator.deviceMemory || "unknown") + " GB, cores " + (navigator.hardwareConcurrency || "unknown") + ", touch " + (coarse() ? "yes" : "no"));
+      if (!capable()) { say("not started: " + (lowPower() ? "reduced motion, Data Saver or 2G" : "no WebGL2 on this browser")); return; }
+      say("starting the " + (weak() ? "light" : "full") + " version");
       if (window.TMApp3D) { runApp(); return; }
       appLoading = true;
-      load("landing3d.js", function () { appLoading = false; runApp(); });
+      load("landing3d.js", function (err) {
+        appLoading = false;
+        say(err ? "landing3d.js did not download" : (window.TMApp3D ? "landing3d.js loaded" : "landing3d.js loaded, but it is an old copy without the background"));
+        runApp();
+      });
     }, 1200);
   }
   function stopApp() {
@@ -2202,6 +2234,7 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     if (appTimer) { clearTimeout(appTimer); appTimer = 0; }
     if (appHandle) { try { appHandle.stop(); } catch (e) {} appHandle = null; }
     if (appCanvas) { if (appCanvas.parentNode) appCanvas.parentNode.removeChild(appCanvas); appCanvas = null; }
+    if (document.body) document.body.classList.remove("bg3d");
   }
 
   // app.js announces which screen is showing: "landing", "auth" (login) or "app"
