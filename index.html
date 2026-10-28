@@ -212,10 +212,15 @@ html:has(body.signed-in){color-scheme:dark;}
    card, takes no clicks, and the middle is dimmed a little so text stays easy to read. */
 #appBg{
   position:fixed; inset:0; width:100%; height:100%; z-index:-1; pointer-events:none; opacity:0; transition:opacity 1s ease;
-  -webkit-mask-image:radial-gradient(ellipse 52% 70% at 50% 46%, rgba(0,0,0,.2), #000 100%);
-          mask-image:radial-gradient(ellipse 52% 70% at 50% 46%, rgba(0,0,0,.2), #000 100%);
+  -webkit-mask-image:radial-gradient(ellipse 48% 66% at 50% 46%, rgba(0,0,0,.45), #000 100%);
+          mask-image:radial-gradient(ellipse 48% 66% at 50% 46%, rgba(0,0,0,.45), #000 100%);
 }
-#appBg.on{opacity:.85;}
+#appBg.on{opacity:1;}
+/* While the background runs, the main cards and the text sitting straight on it are a little see-through / haloed, so the
+   hearts show through instead of hiding behind solid black. Text contrast stays well above the limit. */
+body.bg3d .nudge, body.bg3d .tool, body.bg3d .stat, body.bg3d .empty-state, body.bg3d .match-row,
+body.bg3d .person, body.bg3d .opener, body.bg3d .idea, body.bg3d .bio-option{background:rgba(20,20,20,.72);}
+body.bg3d .hero :is(h1, p, .hero-badge), body.bg3d .panel-head :is(h1, p){text-shadow:0 0 8px rgba(0,0,0,.9), 0 0 18px rgba(0,0,0,.85);}
 body:not(.signed-in) #appBg{display:none;}
 @media (max-width:700px){
   #appBg.on{opacity:.72;}
@@ -223,10 +228,7 @@ body:not(.signed-in) #appBg{display:none;}
     -webkit-mask-image:radial-gradient(ellipse 60% 70% at 50% 46%, rgba(0,0,0,.42), #000 100%);
             mask-image:radial-gradient(ellipse 60% 70% at 50% 46%, rgba(0,0,0,.42), #000 100%);
   }
-  /* Text that sits straight on the background (not on a card) gets a soft dark halo so it stays easy to read. */
-  body.bg3d .hero :is(h1, p, .hero-badge), body.bg3d .panel-head :is(h1, p){text-shadow:0 0 8px rgba(0,0,0,.9), 0 0 18px rgba(0,0,0,.85);}
-  /* On a phone the cards cover nearly the whole screen, so let the main ones be a little see-through while the
-     background is running. The text on them stays well above the contrast limit (checked by the test suite). */
+
   body.bg3d .nudge, body.bg3d .tool, body.bg3d .stat, body.bg3d .empty-state, body.bg3d .match-row,
   body.bg3d .person, body.bg3d .opener, body.bg3d .idea, body.bg3d .bio-option{background:rgba(20,20,20,.7);}
 }
@@ -2178,10 +2180,10 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
   }
   // Every phone gets the background, except when the person asked for less motion or Data Saver, or is on 2G.
   // Phones with WebGL2 get the 3D version (landing3d.js); phones without it get a flat but moving version (appbg2d.js).
-  // Weaker phones (2 GB memory or fewer, or 4 cores or fewer) get a lighter version of either, and each version watches
+  // Weaker devices (2 GB memory or fewer, or 2 cores or fewer) get a lighter version of either, and each version watches
   // its own frame rate and backs off if the phone struggles.
   function weak() {
-    return !!((navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4));
+    return !!((navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2));
   }
   // Add ?bg=why to the address to see, on the screen, what the background is doing and why it didn't start.
   var why = /[?&]bg=why(&|$)/.test(location.search), whyBox = null;
