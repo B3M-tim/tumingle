@@ -2177,10 +2177,10 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
       return true;
     } catch (e) { return false; }
   }
-  // Every phone with WebGL2 gets the background, except when the person asked for less motion or Data Saver, or is on 2G.
-  // Weaker phones (2 GB memory or fewer, or 4 cores or fewer) get a lighter version, and the scene itself watches its
-  // frame rate and backs off if the phone struggles.
-  function capable() { return !lowPower() && canGL(); }
+  // Every phone gets the background, except when the person asked for less motion or Data Saver, or is on 2G.
+  // Phones with WebGL2 get the 3D version (landing3d.js); phones without it get a flat but moving version (appbg2d.js).
+  // Weaker phones (2 GB memory or fewer, or 4 cores or fewer) get a lighter version of either, and each version watches
+  // its own frame rate and backs off if the phone struggles.
   function weak() {
     return !!((navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4));
   }
@@ -2196,13 +2196,13 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     whyBox.textContent += t + "\n";
   }
   function coarse() { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
-  function runApp() {
-    if (!appWanted || appHandle || !window.TMApp3D) return;
+  function runApp(api) {
+    if (!appWanted || appHandle || !api) return;
     appCanvas = document.createElement("canvas");
     appCanvas.id = "appBg"; appCanvas.setAttribute("aria-hidden", "true");
     document.body.insertBefore(appCanvas, document.body.firstChild);
     var cv = appCanvas;
-    appHandle = window.TMApp3D.start(cv, {
+    appHandle = api.start(cv, {
       coarse: coarse(), lite: weak(), say: say,
       onReady: function () { cv.classList.add("on"); document.body.classList.add("bg3d"); say("background is on"); },
       onFail: function () { say("background is off"); stopApp(); }
@@ -2218,14 +2218,15 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
       var c = navigator.connection || {};
       say("phone check: reduced motion " + (reduced() ? "yes" : "no") + ", Data Saver " + (c.saveData ? "yes" : "no") + ", connection " + (c.effectiveType || "unknown") +
         ", memory " + (navigator.deviceMemory || "unknown") + " GB, cores " + (navigator.hardwareConcurrency || "unknown") + ", touch " + (coarse() ? "yes" : "no"));
-      if (!capable()) { say("not started: " + (lowPower() ? "reduced motion, Data Saver or 2G" : "no WebGL2 on this browser")); return; }
-      say("starting the " + (weak() ? "light" : "full") + " version");
-      if (window.TMApp3D) { runApp(); return; }
+      if (lowPower()) { say("not started: reduced motion, Data Saver or 2G"); return; }
+      var gl = canGL(), file = gl ? "landing3d.js" : "appbg2d.js", name = gl ? "TMApp3D" : "TMApp2D";
+      say("starting the " + (weak() ? "light " : "") + (gl ? "3D" : "flat (this browser has no WebGL2)") + " version");
+      if (window[name]) { runApp(window[name]); return; }
       appLoading = true;
-      load("landing3d.js", function (err) {
+      load(file, function (err) {
         appLoading = false;
-        say(err ? "landing3d.js did not download" : (window.TMApp3D ? "landing3d.js loaded" : "landing3d.js loaded, but it is an old copy without the background"));
-        runApp();
+        say(err ? file + " did not download" : (window[name] ? file + " loaded" : file + " loaded, but it is an old copy without the background"));
+        runApp(window[name]);
       });
     }, 1200);
   }
