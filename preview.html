@@ -2198,7 +2198,7 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     whyBox.textContent += t + "\n";
   }
   function coarse() { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
-  function runApp(api) {
+  function runApp(api, kind) {
     if (!appWanted || appHandle || !api) return;
     appCanvas = document.createElement("canvas");
     appCanvas.id = "appBg"; appCanvas.setAttribute("aria-hidden", "true");
@@ -2207,13 +2207,33 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
     appHandle = api.start(cv, {
       coarse: coarse(), lite: weak(), say: say,
       onReady: function () { cv.classList.add("on"); document.body.classList.add("bg3d"); say("background is on"); },
-      onFail: function () { say("background is off"); stopApp(); }
+      onFail: function () {
+        // Wait a tick so start() has finished, then tidy up. If the 3D version is the one that failed, hand over to the flat one, once.
+        window.setTimeout(function () {
+          if (cv !== appCanvas) return;
+          var again = kind === "3d" && appWanted;
+          say("the " + (kind === "3d" ? "3D" : "flat") + " background is off");
+          stopApp();
+          if (again) { appWanted = true; say("trying the flat version instead"); begin("2d"); }
+        }, 0);
+      }
+    });
+  }
+  function begin(kind) {
+    var file = kind === "3d" ? "landing3d.js" : "appbg2d.js", name = kind === "3d" ? "TMApp3D" : "TMApp2D";
+    if (window[name]) { runApp(window[name], kind); return; }
+    appLoading = true;
+    load(file, function (err) {
+      appLoading = false;
+      say(err ? file + " did not download" : (window[name] ? file + " loaded" : file + " loaded, but it did not start (an old copy, or this browser can't read it)"));
+      if (window[name]) runApp(window[name], kind);
+      else if (kind === "3d" && appWanted) { say("trying the flat version instead"); begin("2d"); }
     });
   }
   function startApp() {
     appWanted = true;
     if (appHandle || appLoading || appTimer) return;
-    // Let the app become usable first, then fetch the 3D file in a quiet moment
+    // Let the app become usable first, then fetch the background file in a quiet moment
     appTimer = window.setTimeout(function () {
       appTimer = 0;
       if (!appWanted) return;
@@ -2221,15 +2241,9 @@ html.returning body.booting #landing{visibility:hidden; animation:unboot 0s 3.5s
       say("phone check: reduced motion " + (reduced() ? "yes" : "no") + ", Data Saver " + (c.saveData ? "yes" : "no") + ", connection " + (c.effectiveType || "unknown") +
         ", memory " + (navigator.deviceMemory || "unknown") + " GB, cores " + (navigator.hardwareConcurrency || "unknown") + ", touch " + (coarse() ? "yes" : "no"));
       if (lowPower()) { say("not started: reduced motion, Data Saver or 2G"); return; }
-      var gl = canGL(), file = gl ? "landing3d.js" : "appbg2d.js", name = gl ? "TMApp3D" : "TMApp2D";
+      var gl = canGL();
       say("starting the " + (weak() ? "light " : "") + (gl ? "3D" : "flat (this browser has no WebGL2)") + " version");
-      if (window[name]) { runApp(window[name]); return; }
-      appLoading = true;
-      load(file, function (err) {
-        appLoading = false;
-        say(err ? file + " did not download" : (window[name] ? file + " loaded" : file + " loaded, but it is an old copy without the background"));
-        runApp(window[name]);
-      });
+      begin(gl ? "3d" : "2d");
     }, 1200);
   }
   function stopApp() {
